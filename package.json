@@ -1,0 +1,17 @@
+{
+  "name": "miniagent",
+  "version": "1.0.0",
+  "description": "A minimal prompt-driven coding agent for the terminal",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "bin": {
+    "miniagent": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {}
+}

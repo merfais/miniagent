@@ -1,0 +1,9 @@
+{
+  "provider": {
+    "type": "openai-compatible",
+    "model": "your_model_id",
+    "baseUrl": "https://api.openai.com/v1",
+    "apiKey": "your_api_key"
+  }
+}
+
