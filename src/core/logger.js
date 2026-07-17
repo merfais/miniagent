@@ -66,10 +66,19 @@ function createSessionLogger({
   };
 }
 
+async function logEvent(logger, event) {
+  if (!logger || typeof logger.log !== 'function') {
+    return null;
+  }
+
+  return logger.log(event);
+}
+
 module.exports = {
   createSessionId,
   createSessionLogger,
   formatDateForLogDir,
+  logEvent,
   renderLogLine,
   resolveLogFilePath,
 };

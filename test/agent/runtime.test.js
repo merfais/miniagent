@@ -107,3 +107,64 @@ test('AgentRuntime rejects tool calls with schema-invalid arguments', async () =
     /content/i,
   );
 });
+
+test('AgentRuntime logs provider, tool, and final-answer events', async () => {
+  const events = [];
+  const providerOutputs = [
+    {
+      type: 'tool_call',
+      callId: 'call_1',
+      toolName: 'read_file',
+      args: { path: 'README.md' },
+    },
+    {
+      type: 'final_answer',
+      content: 'Done.',
+    },
+  ];
+
+  const tools = new ToolRegistry();
+  tools.register({
+    name: 'read_file',
+    description: 'Read a file',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+      },
+      required: ['path'],
+    },
+    execute: async () => ({ content: '# Example' }),
+  });
+
+  const runtime = new AgentRuntime({
+    provider: {
+      generate: async () => providerOutputs.shift(),
+    },
+    tools,
+    logger: {
+      log: async (entry) => {
+        events.push(entry);
+      },
+    },
+  });
+
+  await runtime.respond([{ role: 'user', content: 'read the readme' }]);
+
+  assert.deepEqual(
+    events.map((entry) => entry.event),
+    [
+      'runtime.step.start',
+      'provider.generate.start',
+      'provider.generate.end',
+      'tool.call.start',
+      'tool.call.end',
+      'runtime.step.end',
+      'runtime.step.start',
+      'provider.generate.start',
+      'provider.generate.end',
+      'assistant.final',
+      'runtime.step.end',
+    ],
+  );
+});

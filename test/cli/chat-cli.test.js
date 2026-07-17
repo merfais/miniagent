@@ -94,3 +94,35 @@ test('startCli prints tool activity and a grounded final answer', async () => {
   assert.match(output, /\[tool\] run_command/);
   assert.match(output, /Updated local code and ran node -p "1 \+ 1" for verification\./);
 });
+
+test('startCli logs session start and session end', async () => {
+  const input = new PassThrough();
+  input.end('hi\n');
+
+  let output = '';
+  const outputStream = new Writable({
+    write(chunk, _encoding, callback) {
+      output += chunk.toString();
+      callback();
+    },
+  });
+
+  const events = [];
+
+  await startCli({
+    input,
+    output: outputStream,
+    provider: {
+      generate: async () => ({ type: 'final_answer', content: 'Done.' }),
+    },
+    tools: createDefaultToolRegistry({ workspaceRoot: process.cwd() }),
+    logger: {
+      log: async (entry) => {
+        events.push(entry);
+      },
+    },
+  });
+
+  assert.equal(events[0].event, 'session.start');
+  assert.equal(events.at(-1).event, 'session.end');
+});

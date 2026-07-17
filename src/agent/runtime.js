@@ -1,7 +1,8 @@
 const { createToolMessage } = require('../core/messages');
+const { logEvent } = require('../core/logger');
 
 class AgentRuntime {
-  constructor({ provider, tools, maxSteps = 8 }) {
+  constructor({ provider, tools, logger = null, maxSteps = 8 }) {
     if (!provider || typeof provider.generate !== 'function') {
       throw new Error('provider.generate is required');
     }
@@ -12,6 +13,7 @@ class AgentRuntime {
 
     this.provider = provider;
     this.tools = tools;
+    this.logger = logger;
     this.maxSteps = maxSteps;
   }
 
@@ -20,9 +22,37 @@ class AgentRuntime {
     const workingMessages = [...messages];
 
     for (let step = 0; step < this.maxSteps; step += 1) {
-      const action = await this.provider.generate({
-        messages: workingMessages,
-        tools: this.tools.list(),
+      const stepNumber = step + 1;
+      await logEvent(this.logger, {
+        event: 'runtime.step.start',
+        step: stepNumber,
+        messageCount: workingMessages.length,
+      });
+
+      await logEvent(this.logger, {
+        event: 'provider.generate.start',
+        step: stepNumber,
+      });
+
+      let action;
+      try {
+        action = await this.provider.generate({
+          messages: workingMessages,
+          tools: this.tools.list(),
+        });
+      } catch (error) {
+        await logEvent(this.logger, {
+          event: 'provider.generate.error',
+          step: stepNumber,
+          error: error.message,
+        });
+        throw error;
+      }
+
+      await logEvent(this.logger, {
+        event: 'provider.generate.end',
+        step: stepNumber,
+        actionType: action.type,
       });
 
       if (action.type === 'tool_call') {
@@ -30,6 +60,13 @@ class AgentRuntime {
         if (!tool) {
           throw new Error(`Unknown tool: ${action.toolName}`);
         }
+
+        await logEvent(this.logger, {
+          event: 'tool.call.start',
+          step: stepNumber,
+          toolName: action.toolName,
+          callId: action.callId || `call_${stepNumber}`,
+        });
 
         if (typeof tool.validateArgs === 'function') {
           tool.validateArgs(action.args || {});
@@ -49,10 +86,29 @@ class AgentRuntime {
             action.callId || `call_${step + 1}`,
           ),
         );
+
+        await logEvent(this.logger, {
+          event: 'tool.call.end',
+          step: stepNumber,
+          toolName: action.toolName,
+          callId: action.callId || `call_${stepNumber}`,
+        });
+        await logEvent(this.logger, {
+          event: 'runtime.step.end',
+          step: stepNumber,
+        });
         continue;
       }
 
       if (action.type === 'assistant_message' || action.type === 'final_answer') {
+        await logEvent(this.logger, {
+          event: 'assistant.final',
+          step: stepNumber,
+        });
+        await logEvent(this.logger, {
+          event: 'runtime.step.end',
+          step: stepNumber,
+        });
         return {
           output: action,
           trace,

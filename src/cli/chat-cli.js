@@ -3,6 +3,7 @@ const { stdin, stdout } = require('node:process');
 
 const { AgentRuntime } = require('../agent/runtime');
 const { SYSTEM_PROMPT } = require('../agent/system-prompt');
+const { logEvent } = require('../core/logger');
 const { createMessage } = require('../core/messages');
 const { ToolRegistry } = require('../core/tool-registry');
 const { createFileTools } = require('../tools/file-tools');
@@ -136,10 +137,11 @@ async function readUserMessage(rl) {
   }
 }
 
-function createRuntime({ provider, tools }) {
+function createRuntime({ provider, tools, logger }) {
   return new AgentRuntime({
     provider,
     tools,
+    logger,
   });
 }
 
@@ -148,12 +150,14 @@ async function startCli({
   output = stdout,
   provider,
   tools,
+  logger,
   workspaceRoot = process.cwd(),
   fetchImpl = global.fetch,
 } = {}) {
   const runtime = createRuntime({
     provider,
     tools: tools || createDefaultToolRegistry({ workspaceRoot, fetchImpl }),
+    logger,
   });
 
   const rl = readline.createInterface({
@@ -171,6 +175,8 @@ async function startCli({
   let multiline = false;
   const multilineLines = [];
   try {
+    await logEvent(logger, { event: 'session.start' });
+
     for await (const line of rl) {
       let userInput = line;
 
@@ -223,6 +229,7 @@ async function startCli({
       output.write('Bye.\n');
     }
   } finally {
+    await logEvent(logger, { event: 'session.end' });
     rl.close();
   }
 }
