@@ -182,3 +182,9 @@ test('README documents logDir and logToCli', async () => {
   assert.match(readme, /logDir/);
   assert.match(readme, /logToCli/);
 });
+
+test('.gitignore ignores the default logs directory', async () => {
+  const gitignore = await fs.readFile(path.join(process.cwd(), '.gitignore'), 'utf8');
+
+  assert.match(gitignore, /^logs\/$/m);
+});

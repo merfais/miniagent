@@ -180,7 +180,9 @@ async function main({
   try {
     await startCli({ provider, logger, output, workspaceRoot: cwd });
   } catch (error) {
-    await logEvent(logger, { event: 'process.error', error: error.message });
+    if (!error.loggedToSession) {
+      await logEvent(logger, { event: 'process.error', error: error.message });
+    }
     throw error;
   }
 }

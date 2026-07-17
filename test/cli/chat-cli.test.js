@@ -126,3 +126,71 @@ test('startCli logs session start and session end', async () => {
   assert.equal(events[0].event, 'session.start');
   assert.equal(events.at(-1).event, 'session.end');
 });
+
+test('startCli logs process.error before session.end when execution fails', async () => {
+  const input = new PassThrough();
+  input.end('hi\n');
+
+  const outputStream = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+
+  const events = [];
+
+  await assert.rejects(
+    () =>
+      startCli({
+        input,
+        output: outputStream,
+        provider: {
+          generate: async () => {
+            throw new Error('boom');
+          },
+        },
+        tools: createDefaultToolRegistry({ workspaceRoot: process.cwd() }),
+        logger: {
+          log: async (entry) => {
+            events.push(entry);
+          },
+        },
+      }),
+    /boom/,
+  );
+
+  assert.deepEqual(
+    events.map((entry) => entry.event),
+    ['session.start', 'runtime.step.start', 'provider.generate.start', 'provider.generate.error', 'runtime.step.end', 'process.error', 'session.end'],
+  );
+});
+
+test('startCli writes session.start logs before the first prompt when cli mirroring is enabled', async () => {
+  const input = new PassThrough();
+  input.end();
+
+  let output = '';
+  const outputStream = new Writable({
+    write(chunk, _encoding, callback) {
+      output += chunk.toString();
+      callback();
+    },
+  });
+
+  await startCli({
+    input,
+    output: outputStream,
+    provider: {
+      generate: async () => ({ type: 'final_answer', content: 'unused' }),
+    },
+    tools: createDefaultToolRegistry({ workspaceRoot: process.cwd() }),
+    logger: {
+      log: async (entry) => {
+        outputStream.write(`[log] ${entry.event}\n`);
+      },
+    },
+  });
+
+  assert.ok(output.indexOf('[log] session.start') < output.indexOf('you> '));
+  assert.doesNotMatch(output, /you> \[log\] session\.start/);
+});

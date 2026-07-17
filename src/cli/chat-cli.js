@@ -168,6 +168,7 @@ async function startCli({
   let messages = [createMessage('system', SYSTEM_PROMPT)];
 
   output.write('MiniAgent ready. Type :quit to exit. Use :multiline for multi-line input.\n');
+  await logEvent(logger, { event: 'session.start' });
   rl.setPrompt('you> ');
   rl.prompt();
 
@@ -175,8 +176,6 @@ async function startCli({
   let multiline = false;
   const multilineLines = [];
   try {
-    await logEvent(logger, { event: 'session.start' });
-
     for await (const line of rl) {
       let userInput = line;
 
@@ -211,7 +210,17 @@ async function startCli({
       }
 
       messages.push(createMessage('user', userInput));
-      const result = await runtime.respond(messages);
+      let result;
+      try {
+        result = await runtime.respond(messages);
+      } catch (error) {
+        await logEvent(logger, {
+          event: 'process.error',
+          error: error.message,
+        });
+        error.loggedToSession = true;
+        throw error;
+      }
 
       for (const entry of result.trace) {
         output.write(`${renderToolCall(entry)}\n`);
