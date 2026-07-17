@@ -132,3 +132,53 @@ test('createAppContextFromConfig creates one session logger per startup', async 
   assert.match(logger.filePath, /logs\/\d{4}-\d{2}-\d{2}\/[a-f0-9]{8}\.log$/);
   assert.match(entries, /session\.start/);
 });
+
+test('createAppContextFromConfig falls back to defaults for invalid log config types', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-invalid-log-config-'));
+  const { logger } = await createAppContextFromConfig({
+    cwd: root,
+    config: {
+      logToCli: 'yes',
+      logDir: 42,
+      provider: {
+        type: 'openai-compatible',
+        model: 'doubao-test-model',
+        apiKey: 'config-key',
+      },
+    },
+  });
+
+  assert.match(logger.filePath, /logs\/\d{4}-\d{2}-\d{2}\/[a-f0-9]{8}\.log$/);
+});
+
+test('createAppContextFromConfig logs process.error before surfacing startup failures', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-startup-error-'));
+
+  await assert.rejects(
+    () =>
+      createAppContextFromConfig({
+        cwd: root,
+        config: {
+          logDir: 'logs',
+          provider: {
+            type: 'unsupported',
+          },
+        },
+      }),
+    /Unsupported provider type/,
+  );
+
+  const [dateDir] = await fs.readdir(path.join(root, 'logs'));
+  const [fileName] = await fs.readdir(path.join(root, 'logs', dateDir));
+  const content = await fs.readFile(path.join(root, 'logs', dateDir, fileName), 'utf8');
+
+  assert.match(content, /process\.error/);
+  assert.match(content, /Unsupported provider type/);
+});
+
+test('README documents logDir and logToCli', async () => {
+  const readme = await fs.readFile(path.join(process.cwd(), 'README.md'), 'utf8');
+
+  assert.match(readme, /logDir/);
+  assert.match(readme, /logToCli/);
+});

@@ -168,3 +168,60 @@ test('AgentRuntime logs provider, tool, and final-answer events', async () => {
     ],
   );
 });
+
+test('AgentRuntime logs provider.generate.error when the provider throws', async () => {
+  const events = [];
+  const runtime = new AgentRuntime({
+    provider: {
+      generate: async () => {
+        throw new Error('provider failed');
+      },
+    },
+    tools: new ToolRegistry(),
+    logger: {
+      log: async (entry) => {
+        events.push(entry);
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => runtime.respond([{ role: 'user', content: 'fail please' }]),
+    /provider failed/,
+  );
+
+  assert.equal(events.at(-1).event, 'provider.generate.error');
+});
+
+test('AgentRuntime logs tool.call.error when a tool throws', async () => {
+  const events = [];
+  const tools = new ToolRegistry();
+  tools.register({
+    name: 'read_file',
+    description: 'Read a file',
+    inputSchema: { type: 'object', properties: {} },
+    execute: async () => {
+      throw new Error('boom');
+    },
+  });
+
+  const runtime = new AgentRuntime({
+    provider: {
+      generate: async () => ({
+        type: 'tool_call',
+        callId: 'call_1',
+        toolName: 'read_file',
+        args: {},
+      }),
+    },
+    tools,
+    logger: {
+      log: async (entry) => {
+        events.push(entry);
+      },
+    },
+  });
+
+  await assert.rejects(() => runtime.respond([{ role: 'user', content: 'read it' }]), /boom/);
+  assert.equal(events.at(-1).event, 'tool.call.error');
+});

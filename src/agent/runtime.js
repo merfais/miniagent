@@ -68,11 +68,24 @@ class AgentRuntime {
           callId: action.callId || `call_${stepNumber}`,
         });
 
-        if (typeof tool.validateArgs === 'function') {
-          tool.validateArgs(action.args || {});
+        let result;
+        try {
+          if (typeof tool.validateArgs === 'function') {
+            tool.validateArgs(action.args || {});
+          }
+
+          result = await tool.execute(action.args || {});
+        } catch (error) {
+          await logEvent(this.logger, {
+            event: 'tool.call.error',
+            step: stepNumber,
+            toolName: action.toolName,
+            callId: action.callId || `call_${stepNumber}`,
+            error: error.message,
+          });
+          throw error;
         }
 
-        const result = await tool.execute(action.args || {});
         trace.push({
           toolName: action.toolName,
           args: action.args || {},
