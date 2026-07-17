@@ -43,6 +43,15 @@ function createSessionLogger({
   now = new Date(),
 }) {
   const filePath = resolveLogFilePath({ workspaceRoot, logDir, sessionId, now });
+  let ensureDirectoryPromise;
+
+  async function ensureDirectory() {
+    if (!ensureDirectoryPromise) {
+      ensureDirectoryPromise = fs.mkdir(path.dirname(filePath), { recursive: true });
+    }
+
+    return ensureDirectoryPromise;
+  }
 
   return {
     sessionId,
@@ -54,7 +63,7 @@ function createSessionLogger({
         ...event,
       };
 
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await ensureDirectory();
       await fs.appendFile(filePath, `${JSON.stringify(entry)}\n`, 'utf8');
 
       if (logToCli) {

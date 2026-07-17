@@ -254,3 +254,33 @@ test('AgentRuntime preserves the original provider error when logging fails', as
     /provider failed/,
   );
 });
+
+test('AgentRuntime logs unknown tool failures as tool.call.error', async () => {
+  const events = [];
+  const runtime = new AgentRuntime({
+    provider: {
+      generate: async () => ({
+        type: 'tool_call',
+        callId: 'call_1',
+        toolName: 'missing_tool',
+        args: {},
+      }),
+    },
+    tools: new ToolRegistry(),
+    logger: {
+      log: async (entry) => {
+        events.push(entry);
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => runtime.respond([{ role: 'user', content: 'trigger unknown tool' }]),
+    /Unknown tool: missing_tool/,
+  );
+
+  assert.deepEqual(
+    events.slice(-3).map((entry) => entry.event),
+    ['tool.call.start', 'tool.call.error', 'runtime.step.end'],
+  );
+});

@@ -57,17 +57,25 @@ class AgentRuntime {
         });
 
         if (action.type === 'tool_call') {
-          const tool = this.tools.get(action.toolName);
-          if (!tool) {
-            throw new Error(`Unknown tool: ${action.toolName}`);
-          }
-
           await logEvent(this.logger, {
             event: 'tool.call.start',
             step: stepNumber,
             toolName: action.toolName,
             callId: action.callId || `call_${stepNumber}`,
           });
+
+          const tool = this.tools.get(action.toolName);
+          if (!tool) {
+            const error = new Error(`Unknown tool: ${action.toolName}`);
+            await logEvent(this.logger, {
+              event: 'tool.call.error',
+              step: stepNumber,
+              toolName: action.toolName,
+              callId: action.callId || `call_${stepNumber}`,
+              error: error.message,
+            });
+            throw error;
+          }
 
           let result;
           try {
