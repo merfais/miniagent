@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const { startCli } = require('./cli/chat-cli');
+const { createSessionId, createSessionLogger } = require('./core/logger');
 const { OpenAiCompatibleProvider } = require('./providers/openai-compatible');
 
 async function loadConfig({
@@ -82,9 +83,106 @@ async function createProviderFromConfig({
   }
 }
 
-async function main() {
-  const provider = await createProviderFromConfig();
-  await startCli({ provider });
+function normalizeLoggingConfig(config = {}) {
+  return {
+    logToCli: config.logToCli === true,
+    logDir: typeof config.logDir === 'string' && config.logDir.trim() !== '' ? config.logDir : 'logs',
+  };
+}
+
+function createLoggerFromConfig({
+  cwd = process.cwd(),
+  config = {},
+  output = process.stdout,
+  sessionId = createSessionId(),
+} = {}) {
+  const { logToCli, logDir } = normalizeLoggingConfig(config);
+
+  return createSessionLogger({
+    workspaceRoot: cwd,
+    sessionId,
+    logDir,
+    logToCli,
+    cliWriter: (line) => output.write(line),
+  });
+}
+
+async function createAppContextFromConfig({
+  cwd = process.cwd(),
+  configPath = path.join(cwd, 'miniagent.config.json'),
+  config,
+  env = process.env,
+  output = process.stdout,
+} = {}) {
+  const sessionId = createSessionId();
+  let logger;
+
+  try {
+    let resolvedConfig = config;
+
+    if (resolvedConfig === undefined) {
+      try {
+        resolvedConfig = await loadConfig({ cwd, configPath });
+      } catch (error) {
+        if (error && error.code === 'ENOENT') {
+          resolvedConfig = null;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    logger = createLoggerFromConfig({
+      cwd,
+      config: resolvedConfig || {},
+      output,
+      sessionId,
+    });
+
+    const provider = resolvedConfig
+      ? createProviderFromObject(resolvedConfig, env)
+      : createProviderFromEnv(env);
+
+    return {
+      config: resolvedConfig || {},
+      logger,
+      provider,
+      sessionId,
+    };
+  } catch (error) {
+    if (!logger) {
+      logger = createLoggerFromConfig({
+        cwd,
+        config: {},
+        output,
+        sessionId,
+      });
+    }
+
+    await logger.log({ event: 'process.error', error: error.message });
+    throw error;
+  }
+}
+
+async function main({
+  cwd = process.cwd(),
+  configPath = path.join(cwd, 'miniagent.config.json'),
+  env = process.env,
+  output = process.stdout,
+} = {}) {
+  const { provider, logger } = await createAppContextFromConfig({
+    cwd,
+    configPath,
+    env,
+    output,
+  });
+
+  try {
+    await startCli({ provider, logger, output, workspaceRoot: cwd });
+  } catch (error) {
+    await logger.log({ event: 'process.error', error: error.message });
+    throw error;
+  }
 }
 
 if (require.main === module) {
@@ -95,9 +193,12 @@ if (require.main === module) {
 }
 
 module.exports = {
+  createAppContextFromConfig,
+  createLoggerFromConfig,
   createProviderFromConfig,
   createProviderFromEnv,
   createProviderFromObject,
   loadConfig,
+  normalizeLoggingConfig,
   main,
 };

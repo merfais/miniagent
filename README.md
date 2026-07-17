@@ -21,6 +21,8 @@ Then edit `miniagent.config.json`:
 
 ```json
 {
+  "logDir": "logs",
+  "logToCli": false,
   "provider": {
     "type": "openai-compatible",
     "model": "your_model_id",
@@ -29,6 +31,11 @@ Then edit `miniagent.config.json`:
   }
 }
 ```
+
+Logging is always written to disk. By default MiniAgent stores one JSON Lines file per session under `logs/{YYYY-MM-DD}/{sessionId}.log`.
+
+- `logDir` changes the base log directory while keeping the date and session layout.
+- `logToCli: true` mirrors the same structured log events to the terminal.
 
 If you prefer not to store the API key in the config file, use `apiKeyEnv`:
 
