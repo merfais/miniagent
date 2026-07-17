@@ -190,7 +190,10 @@ test('AgentRuntime logs provider.generate.error when the provider throws', async
     /provider failed/,
   );
 
-  assert.equal(events.at(-1).event, 'provider.generate.error');
+  assert.deepEqual(
+    events.slice(-2).map((entry) => entry.event),
+    ['provider.generate.error', 'runtime.step.end'],
+  );
 });
 
 test('AgentRuntime logs tool.call.error when a tool throws', async () => {
@@ -223,5 +226,31 @@ test('AgentRuntime logs tool.call.error when a tool throws', async () => {
   });
 
   await assert.rejects(() => runtime.respond([{ role: 'user', content: 'read it' }]), /boom/);
-  assert.equal(events.at(-1).event, 'tool.call.error');
+  assert.deepEqual(
+    events.slice(-2).map((entry) => entry.event),
+    ['tool.call.error', 'runtime.step.end'],
+  );
+});
+
+test('AgentRuntime preserves the original provider error when logging fails', async () => {
+  const runtime = new AgentRuntime({
+    provider: {
+      generate: async () => {
+        throw new Error('provider failed');
+      },
+    },
+    tools: new ToolRegistry(),
+    logger: {
+      log: async (entry) => {
+        if (entry.event === 'provider.generate.error') {
+          throw new Error('log write failed');
+        }
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => runtime.respond([{ role: 'user', content: 'fail please' }]),
+    /provider failed/,
+  );
 });

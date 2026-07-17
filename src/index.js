@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const { startCli } = require('./cli/chat-cli');
-const { createSessionId, createSessionLogger } = require('./core/logger');
+const { createSessionId, createSessionLogger, logEvent } = require('./core/logger');
 const { OpenAiCompatibleProvider } = require('./providers/openai-compatible');
 
 async function loadConfig({
@@ -159,7 +159,7 @@ async function createAppContextFromConfig({
       });
     }
 
-    await logger.log({ event: 'process.error', error: error.message });
+    await logEvent(logger, { event: 'process.error', error: error.message });
     throw error;
   }
 }
@@ -180,7 +180,7 @@ async function main({
   try {
     await startCli({ provider, logger, output, workspaceRoot: cwd });
   } catch (error) {
-    await logger.log({ event: 'process.error', error: error.message });
+    await logEvent(logger, { event: 'process.error', error: error.message });
     throw error;
   }
 }

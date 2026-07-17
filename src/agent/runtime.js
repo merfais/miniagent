@@ -29,107 +29,106 @@ class AgentRuntime {
         messageCount: workingMessages.length,
       });
 
-      await logEvent(this.logger, {
-        event: 'provider.generate.start',
-        step: stepNumber,
-      });
-
-      let action;
       try {
-        action = await this.provider.generate({
-          messages: workingMessages,
-          tools: this.tools.list(),
-        });
-      } catch (error) {
         await logEvent(this.logger, {
-          event: 'provider.generate.error',
+          event: 'provider.generate.start',
           step: stepNumber,
-          error: error.message,
-        });
-        throw error;
-      }
-
-      await logEvent(this.logger, {
-        event: 'provider.generate.end',
-        step: stepNumber,
-        actionType: action.type,
-      });
-
-      if (action.type === 'tool_call') {
-        const tool = this.tools.get(action.toolName);
-        if (!tool) {
-          throw new Error(`Unknown tool: ${action.toolName}`);
-        }
-
-        await logEvent(this.logger, {
-          event: 'tool.call.start',
-          step: stepNumber,
-          toolName: action.toolName,
-          callId: action.callId || `call_${stepNumber}`,
         });
 
-        let result;
+        let action;
         try {
-          if (typeof tool.validateArgs === 'function') {
-            tool.validateArgs(action.args || {});
-          }
-
-          result = await tool.execute(action.args || {});
+          action = await this.provider.generate({
+            messages: workingMessages,
+            tools: this.tools.list(),
+          });
         } catch (error) {
           await logEvent(this.logger, {
-            event: 'tool.call.error',
+            event: 'provider.generate.error',
             step: stepNumber,
-            toolName: action.toolName,
-            callId: action.callId || `call_${stepNumber}`,
             error: error.message,
           });
           throw error;
         }
 
-        trace.push({
-          toolName: action.toolName,
-          args: action.args || {},
-          result,
-        });
-
-        workingMessages.push(
-          createToolMessage(
-            action.toolName,
-            JSON.stringify(result),
-            action.callId || `call_${step + 1}`,
-          ),
-        );
-
         await logEvent(this.logger, {
-          event: 'tool.call.end',
+          event: 'provider.generate.end',
           step: stepNumber,
-          toolName: action.toolName,
-          callId: action.callId || `call_${stepNumber}`,
+          actionType: action.type,
         });
+
+        if (action.type === 'tool_call') {
+          const tool = this.tools.get(action.toolName);
+          if (!tool) {
+            throw new Error(`Unknown tool: ${action.toolName}`);
+          }
+
+          await logEvent(this.logger, {
+            event: 'tool.call.start',
+            step: stepNumber,
+            toolName: action.toolName,
+            callId: action.callId || `call_${stepNumber}`,
+          });
+
+          let result;
+          try {
+            if (typeof tool.validateArgs === 'function') {
+              tool.validateArgs(action.args || {});
+            }
+
+            result = await tool.execute(action.args || {});
+          } catch (error) {
+            await logEvent(this.logger, {
+              event: 'tool.call.error',
+              step: stepNumber,
+              toolName: action.toolName,
+              callId: action.callId || `call_${stepNumber}`,
+              error: error.message,
+            });
+            throw error;
+          }
+
+          trace.push({
+            toolName: action.toolName,
+            args: action.args || {},
+            result,
+          });
+
+          workingMessages.push(
+            createToolMessage(
+              action.toolName,
+              JSON.stringify(result),
+              action.callId || `call_${step + 1}`,
+            ),
+          );
+
+          await logEvent(this.logger, {
+            event: 'tool.call.end',
+            step: stepNumber,
+            toolName: action.toolName,
+            callId: action.callId || `call_${stepNumber}`,
+          });
+          continue;
+        }
+
+        if (action.type === 'assistant_message' || action.type === 'final_answer') {
+          await logEvent(this.logger, {
+            event: 'assistant.final',
+            step: stepNumber,
+          });
+          return {
+            output: action,
+            trace,
+            messages: workingMessages,
+          };
+        }
+
+        throw new Error(`Unknown action type: ${action.type}`);
+      } finally {
         await logEvent(this.logger, {
           event: 'runtime.step.end',
           step: stepNumber,
         });
-        continue;
       }
-
-      if (action.type === 'assistant_message' || action.type === 'final_answer') {
-        await logEvent(this.logger, {
-          event: 'assistant.final',
-          step: stepNumber,
-        });
-        await logEvent(this.logger, {
-          event: 'runtime.step.end',
-          step: stepNumber,
-        });
-        return {
-          output: action,
-          trace,
-          messages: workingMessages,
-        };
-      }
-
-      throw new Error(`Unknown action type: ${action.type}`);
     }
 
     throw new Error(`Agent exceeded max steps (${this.maxSteps})`);

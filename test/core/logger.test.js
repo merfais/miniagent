@@ -7,6 +7,7 @@ const path = require('node:path');
 const {
   createSessionLogger,
   createSessionId,
+  logEvent,
   resolveLogFilePath,
 } = require('../../src/core/logger');
 
@@ -64,4 +65,15 @@ test('createSessionLogger mirrors logs to cli when logToCli is enabled', async (
 test('createSessionId returns a short random identifier', () => {
   const sessionId = createSessionId();
   assert.match(sessionId, /^[a-f0-9]{8}$/);
+});
+
+test('logEvent resolves to undefined even when the logger returns a value', async () => {
+  const result = await logEvent(
+    {
+      log: async () => ({ ok: true }),
+    },
+    { event: 'session.start' },
+  );
+
+  assert.equal(result, undefined);
 });

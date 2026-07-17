@@ -68,10 +68,20 @@ function createSessionLogger({
 
 async function logEvent(logger, event) {
   if (!logger || typeof logger.log !== 'function') {
-    return null;
+    return;
   }
 
-  return logger.log(event);
+  try {
+    await logger.log(event);
+  } catch (error) {
+    const message = error && error.message ? error.message : String(error);
+
+    try {
+      process.stderr.write(`[log-error] ${message}\n`);
+    } catch {
+      // Intentionally ignore stderr failures so logging never masks the real error path.
+    }
+  }
 }
 
 module.exports = {
