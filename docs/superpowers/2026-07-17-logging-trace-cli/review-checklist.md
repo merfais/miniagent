@@ -103,4 +103,4 @@
 
 ---
 
-**Totals:** 50 checklist items in total (functional 5 / file 10 / interface 8 / behavior 12 / test 11 / constraint 7 / out-of-scope 7)
+**Totals:** 60 checklist items in total (functional 5 / file 10 / interface 8 / behavior 12 / test 11 / constraint 7 / out-of-scope 7)
