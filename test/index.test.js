@@ -133,6 +133,24 @@ test('createAppContextFromConfig creates one session logger per startup', async 
   assert.match(entries, /session\.start/);
 });
 
+test('createAppContextFromConfig applies a custom logDir to the startup logger path', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-custom-log-dir-'));
+  const { logger } = await createAppContextFromConfig({
+    cwd: root,
+    config: {
+      logToCli: false,
+      logDir: 'custom-logs',
+      provider: {
+        type: 'openai-compatible',
+        model: 'doubao-test-model',
+        apiKey: 'config-key',
+      },
+    },
+  });
+
+  assert.match(logger.filePath, /custom-logs\/\d{4}-\d{2}-\d{2}\/[a-f0-9]{8}\.log$/);
+});
+
 test('createAppContextFromConfig falls back to defaults for invalid log config types', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-invalid-log-config-'));
   const { logger } = await createAppContextFromConfig({

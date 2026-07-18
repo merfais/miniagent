@@ -84,6 +84,27 @@ class AgentRuntime {
             }
 
             result = await tool.execute(action.args || {});
+
+            trace.push({
+              toolName: action.toolName,
+              args: action.args || {},
+              result,
+            });
+
+            workingMessages.push(
+              createToolMessage(
+                action.toolName,
+                JSON.stringify(result),
+                action.callId || `call_${step + 1}`,
+              ),
+            );
+
+            await logEvent(this.logger, {
+              event: 'tool.call.end',
+              step: stepNumber,
+              toolName: action.toolName,
+              callId: action.callId || `call_${stepNumber}`,
+            });
           } catch (error) {
             await logEvent(this.logger, {
               event: 'tool.call.error',
@@ -94,27 +115,6 @@ class AgentRuntime {
             });
             throw error;
           }
-
-          trace.push({
-            toolName: action.toolName,
-            args: action.args || {},
-            result,
-          });
-
-          workingMessages.push(
-            createToolMessage(
-              action.toolName,
-              JSON.stringify(result),
-              action.callId || `call_${step + 1}`,
-            ),
-          );
-
-          await logEvent(this.logger, {
-            event: 'tool.call.end',
-            step: stepNumber,
-            toolName: action.toolName,
-            callId: action.callId || `call_${stepNumber}`,
-          });
           continue;
         }
 

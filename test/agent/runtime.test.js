@@ -284,3 +284,41 @@ test('AgentRuntime logs unknown tool failures as tool.call.error', async () => {
     ['tool.call.start', 'tool.call.error', 'runtime.step.end'],
   );
 });
+
+test('AgentRuntime logs tool.call.error when tool result serialization fails', async () => {
+  const events = [];
+  const tools = new ToolRegistry();
+  tools.register({
+    name: 'bigint_tool',
+    description: 'Return an unserializable payload',
+    inputSchema: { type: 'object', properties: {} },
+    execute: async () => ({ value: 1n }),
+  });
+
+  const runtime = new AgentRuntime({
+    provider: {
+      generate: async () => ({
+        type: 'tool_call',
+        callId: 'call_1',
+        toolName: 'bigint_tool',
+        args: {},
+      }),
+    },
+    tools,
+    logger: {
+      log: async (entry) => {
+        events.push(entry);
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => runtime.respond([{ role: 'user', content: 'serialize this' }]),
+    /serialize a BigInt/,
+  );
+
+  assert.deepEqual(
+    events.slice(-3).map((entry) => entry.event),
+    ['tool.call.start', 'tool.call.error', 'runtime.step.end'],
+  );
+});
