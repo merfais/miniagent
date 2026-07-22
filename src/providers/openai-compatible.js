@@ -40,6 +40,18 @@ function normalizeActionFromResponse(payload) {
   throw new Error('Provider response does not contain content or tool calls');
 }
 
+function normalizeMessage(message) {
+  if (message && message.role === 'tool') {
+    return {
+      role: 'tool',
+      tool_call_id: message.tool_call_id || message.callId,
+      content: message.content,
+    };
+  }
+
+  return message;
+}
+
 class OpenAiCompatibleProvider {
   constructor({
     apiKey,
@@ -72,8 +84,10 @@ class OpenAiCompatibleProvider {
   }
 
   buildMessages(messages) {
+    const providerMessages = messages.map(normalizeMessage);
+
     if (!this.systemPrompt) {
-      return messages;
+      return providerMessages;
     }
 
     return [
@@ -81,7 +95,7 @@ class OpenAiCompatibleProvider {
         role: 'system',
         content: this.systemPrompt,
       },
-      ...messages,
+      ...providerMessages,
     ];
   }
 
@@ -111,6 +125,6 @@ class OpenAiCompatibleProvider {
 module.exports = {
   OpenAiCompatibleProvider,
   normalizeActionFromResponse,
+  normalizeMessage,
   normalizeTool,
 };
-
