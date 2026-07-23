@@ -45,6 +45,20 @@ export interface ToolCallTrace {
   result: unknown;
 }
 
+export interface ToolCallAction {
+  type: 'tool_call';
+  callId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+}
+
+export interface FinalAnswerAction {
+  type: 'final_answer' | 'assistant_message';
+  content: string;
+}
+
+export type ProviderAction = ToolCallAction | FinalAnswerAction;
+
 export interface SessionLogger {
   sessionId: string;
   filePath: string;
