@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const { startCli } = require('./cli/chat-cli');
 const { createSessionId, createSessionLogger, logEvent } = require('./core/logger');
+const { createSessionStore } = require('./core/session-store');
 const { OpenAiCompatibleProvider } = require('./providers/openai-compatible');
 
 async function loadConfig({
@@ -148,6 +149,7 @@ async function createAppContextFromConfig({
       logger,
       provider,
       sessionId,
+      sessionStore: createSessionStore({ workspaceRoot: cwd }),
     };
   } catch (error) {
     if (!logger) {
@@ -170,7 +172,7 @@ async function main({
   env = process.env,
   output = process.stdout,
 } = {}) {
-  const { provider, logger } = await createAppContextFromConfig({
+  const { provider, logger, sessionStore } = await createAppContextFromConfig({
     cwd,
     configPath,
     env,
@@ -178,7 +180,7 @@ async function main({
   });
 
   try {
-    await startCli({ provider, logger, output, workspaceRoot: cwd });
+    await startCli({ provider, logger, output, workspaceRoot: cwd, sessionStore });
   } catch (error) {
     if (!error.loggedToSession) {
       await logEvent(logger, { event: 'process.error', error: error.message });

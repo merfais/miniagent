@@ -194,3 +194,113 @@ test('startCli writes session.start logs before the first prompt when cli mirror
   assert.ok(output.indexOf('[log] session.start') < output.indexOf('you> '));
   assert.doesNotMatch(output, /you> \[log\] session\.start/);
 });
+
+test('startCli restores the active session before creating a new one', async () => {
+  const input = new PassThrough();
+  input.end('hi\n');
+
+  let output = '';
+  const outputStream = new Writable({
+    write(chunk, _encoding, callback) {
+      output += chunk.toString();
+      callback();
+    },
+  });
+
+  const storeCalls = [];
+  const fakeStore = {
+    async loadActiveSession() {
+      storeCalls.push('loadActiveSession');
+      return {
+        sessionId: '2026-07-23/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        messages: [{ role: 'system', content: 'system prompt' }],
+        nextTurn: 1,
+      };
+    },
+    async createSession() {
+      storeCalls.push('createSession');
+      throw new Error('createSession should not be called when active session exists');
+    },
+    async persistCompletedTurn() {
+      storeCalls.push('persistCompletedTurn');
+      return {
+        messages: [
+          { role: 'system', content: 'system prompt' },
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: 'Done.' },
+        ],
+        nextTurn: 2,
+      };
+    },
+  };
+
+  await startCli({
+    input,
+    output: outputStream,
+    provider: {
+      generate: async () => ({ type: 'final_answer', content: 'Done.' }),
+    },
+    tools: createDefaultToolRegistry({ workspaceRoot: process.cwd() }),
+    sessionStore: fakeStore,
+  });
+
+  assert.deepEqual(storeCalls, [
+    'loadActiveSession',
+    'persistCompletedTurn',
+  ]);
+  assert.match(output, /assistant> Done\./);
+});
+
+test('startCli creates a session when no active session exists', async () => {
+  const input = new PassThrough();
+  input.end('hi\n');
+
+  const outputStream = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+
+  const storeCalls = [];
+  const fakeStore = {
+    async loadActiveSession() {
+      storeCalls.push('loadActiveSession');
+      return null;
+    },
+    async createSession({ initialMessages }) {
+      storeCalls.push(['createSession', initialMessages[0].role]);
+      return {
+        sessionId: '2026-07-23/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        messages: initialMessages,
+        nextTurn: 1,
+      };
+    },
+    async persistCompletedTurn() {
+      storeCalls.push('persistCompletedTurn');
+      return {
+        messages: [
+          { role: 'system', content: 'system prompt' },
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: 'Done.' },
+        ],
+        nextTurn: 2,
+      };
+    },
+  };
+
+  await startCli({
+    input,
+    output: outputStream,
+    provider: {
+      generate: async () => ({ type: 'final_answer', content: 'Done.' }),
+    },
+    tools: createDefaultToolRegistry({ workspaceRoot: process.cwd() }),
+    sessionStore: fakeStore,
+  });
+
+  assert.deepEqual(storeCalls, [
+    'loadActiveSession',
+    ['createSession', 'system'],
+    'persistCompletedTurn',
+  ]);
+});

@@ -86,6 +86,7 @@ class AgentRuntime {
             result = await tool.execute(action.args || {});
 
             trace.push({
+              callId: action.callId || `call_${stepNumber}`,
               toolName: action.toolName,
               args: action.args || {},
               result,

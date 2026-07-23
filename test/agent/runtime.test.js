@@ -232,6 +232,45 @@ test('AgentRuntime logs tool.call.error when a tool throws', async () => {
   );
 });
 
+test('AgentRuntime trace preserves the tool call id', async () => {
+  const providerOutputs = [
+    {
+      type: 'tool_call',
+      callId: 'call_123',
+      toolName: 'read_file',
+      args: { path: 'README.md' },
+    },
+    {
+      type: 'final_answer',
+      content: 'Done.',
+    },
+  ];
+
+  const tools = new ToolRegistry();
+  tools.register({
+    name: 'read_file',
+    description: 'Read a file',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string' },
+      },
+      required: ['path'],
+    },
+    execute: async () => ({ content: '# Example' }),
+  });
+
+  const runtime = new AgentRuntime({
+    provider: {
+      generate: async () => providerOutputs.shift(),
+    },
+    tools,
+  });
+
+  const result = await runtime.respond([{ role: 'user', content: 'read it' }]);
+  assert.equal(result.trace[0].callId, 'call_123');
+});
+
 test('AgentRuntime preserves the original provider error when logging fails', async () => {
   const runtime = new AgentRuntime({
     provider: {

@@ -153,6 +153,7 @@ async function startCli({
   logger,
   workspaceRoot = process.cwd(),
   fetchImpl = global.fetch,
+  sessionStore,
 } = {}) {
   const runtime = createRuntime({
     provider,
@@ -165,7 +166,20 @@ async function startCli({
     output,
   });
 
-  let messages = [createMessage('system', SYSTEM_PROMPT)];
+  const restoredSession = sessionStore ? await sessionStore.loadActiveSession() : null;
+  const currentSession =
+    restoredSession ||
+    (sessionStore
+      ? await sessionStore.createSession({
+          initialMessages: [createMessage('system', SYSTEM_PROMPT)],
+        })
+      : null);
+
+  let sessionId = currentSession ? currentSession.sessionId : null;
+  let nextTurn = currentSession ? currentSession.nextTurn : 1;
+  let messages = currentSession
+    ? currentSession.messages
+    : [createMessage('system', SYSTEM_PROMPT)];
 
   output.write('MiniAgent ready. Type :quit to exit. Use :multiline for multi-line input.\n');
   await logEvent(logger, { event: 'session.start' });
@@ -209,7 +223,8 @@ async function startCli({
         continue;
       }
 
-      messages.push(createMessage('user', userInput));
+      const userMessage = createMessage('user', userInput);
+      messages.push(userMessage);
       let result;
       try {
         result = await runtime.respond(messages);
@@ -226,11 +241,24 @@ async function startCli({
         output.write(`${renderToolCall(entry)}\n`);
       }
 
-      output.write(`assistant> ${result.output.content}\n`);
-      messages = [
-        ...result.messages,
-        createMessage('assistant', result.output.content),
-      ];
+      const assistantMessage = createMessage('assistant', result.output.content);
+      output.write(`assistant> ${assistantMessage.content}\n`);
+
+      if (sessionStore && sessionId) {
+        const persisted = await sessionStore.persistCompletedTurn({
+          sessionId,
+          turn: nextTurn,
+          userMessage,
+          assistantMessage,
+          toolTrace: result.trace,
+        });
+
+        messages = persisted.messages;
+        nextTurn = persisted.nextTurn;
+      } else {
+        messages = [...result.messages, assistantMessage];
+      }
+
       rl.prompt();
     }
 

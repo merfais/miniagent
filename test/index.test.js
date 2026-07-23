@@ -194,6 +194,23 @@ test('createAppContextFromConfig logs process.error before surfacing startup fai
   assert.match(content, /Unsupported provider type/);
 });
 
+test('createAppContextFromConfig exposes a sessionStore', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-app-session-'));
+  const context = await createAppContextFromConfig({
+    cwd: root,
+    config: {
+      provider: {
+        type: 'openai-compatible',
+        model: 'doubao-test-model',
+        apiKey: 'config-key',
+      },
+    },
+  });
+
+  assert.equal(typeof context.sessionStore.createSession, 'function');
+  assert.equal(typeof context.sessionStore.loadActiveSession, 'function');
+});
+
 test('README documents logDir and logToCli', async () => {
   const readme = await fs.readFile(path.join(process.cwd(), 'README.md'), 'utf8');
 
