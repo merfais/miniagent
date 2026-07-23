@@ -64,3 +64,69 @@ export interface SessionLogger {
   filePath: string;
   log(event: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
+
+export interface SessionMessageEntry {
+  turn: number;
+  message: Message;
+}
+
+export interface SessionMeta {
+  activeSessionId: string | null;
+  dailyIncrement: {
+    date: string | null;
+    value: number;
+  };
+}
+
+export interface MessageHistoryRecord {
+  type: 'message';
+  turn: number;
+  role: Message['role'];
+  content: string;
+  timestamp: string;
+}
+
+export interface ToolCallHistoryRecord {
+  type: 'tool_call';
+  turn: number;
+  toolName: string;
+  callId: string;
+  args: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface ToolResultHistoryRecord {
+  type: 'tool_result';
+  turn: number;
+  toolName: string;
+  callId: string;
+  displaySummary: string;
+  artifactRef?: string;
+  timestamp: string;
+}
+
+export interface CompressionRecord {
+  type: 'compression';
+  sessionId: string;
+  compressionId: string;
+  appliedBeforeTurn: number;
+  beforeMessageRef: string;
+  summary: string;
+  afterDigest: string;
+  timestamp: string;
+}
+
+export type HistoryRecord =
+  | MessageHistoryRecord
+  | ToolCallHistoryRecord
+  | ToolResultHistoryRecord
+  | CompressionRecord;
+
+export interface PendingCompressionRecord {
+  sessionId: string;
+  compressionId: string;
+  appliedBeforeTurn: number;
+  beforeMessageRef: string;
+  summary?: string;
+  afterDigest: string;
+}
