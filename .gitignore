@@ -2,3 +2,4 @@ node_modules/
 miniagent.config.json
 .worktrees/
 logs/
+dist/
