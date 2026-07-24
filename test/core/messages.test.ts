@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createMessage, createToolMessage } from '../../src/core/messages';
+import { createMessage, createToolMessage } from '../../src/core/messages.js';
 
 test('createMessage preserves role, content, and extras', () => {
   const message = createMessage('assistant', 'done', { callId: 'call_1' });

@@ -1,12 +1,22 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { PassThrough, Writable } = require('node:stream');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { PassThrough, Writable } from 'node:stream';
 
-const {
+import {
   createDefaultToolRegistry,
   renderToolCall,
   startCli,
-} = require('../../src/cli/chat-cli');
+} from '../../src/cli/chat-cli.js';
+import type { FetchLike } from '../../src/tools/web-search-tool.js';
+
+function createFetchResponse(body: unknown) {
+  return {
+    ok: true,
+    json: async () => body,
+  } as Awaited<ReturnType<FetchLike>>;
+}
+
+const mockFetch: FetchLike = async () => createFetchResponse({ RelatedTopics: [] });
 
 test('renderToolCall prints a readable status line', () => {
   assert.match(
@@ -18,10 +28,7 @@ test('renderToolCall prints a readable status line', () => {
 test('createDefaultToolRegistry registers MVP tools', () => {
   const registry = createDefaultToolRegistry({
     workspaceRoot: process.cwd(),
-    fetchImpl: async () => ({
-      ok: true,
-      json: async () => ({ RelatedTopics: [] }),
-    }),
+    fetchImpl: mockFetch,
   });
 
   assert.ok(registry.get('read_file'));
@@ -71,13 +78,13 @@ test('startCli prints tool activity and a grounded final answer', async () => {
 
   const actions = [
     {
-      type: 'tool_call',
+      type: 'tool_call' as const,
       callId: 'call_1',
       toolName: 'run_command',
       args: { cmd: 'node -p "1 + 1"' },
     },
     {
-      type: 'final_answer',
+      type: 'final_answer' as const,
       content: 'Updated local code and ran node -p "1 + 1" for verification.',
     },
   ];
@@ -107,7 +114,7 @@ test('startCli logs session start and session end', async () => {
     },
   });
 
-  const events = [];
+  const events: Array<Record<string, unknown>> = [];
 
   await startCli({
     input,
@@ -117,14 +124,15 @@ test('startCli logs session start and session end', async () => {
     },
     tools: createDefaultToolRegistry({ workspaceRoot: process.cwd() }),
     logger: {
-      log: async (entry) => {
+      log: async (entry: Record<string, unknown>) => {
         events.push(entry);
+        return entry;
       },
     },
   });
 
-  assert.equal(events[0].event, 'session.start');
-  assert.equal(events.at(-1).event, 'session.end');
+  assert.equal(events[0]?.event, 'session.start');
+  assert.equal(events.at(-1)?.event, 'session.end');
 });
 
 test('startCli logs process.error before session.end when execution fails', async () => {
@@ -137,7 +145,7 @@ test('startCli logs process.error before session.end when execution fails', asyn
     },
   });
 
-  const events = [];
+  const events: Array<Record<string, unknown>> = [];
 
   await assert.rejects(
     () =>
@@ -151,8 +159,9 @@ test('startCli logs process.error before session.end when execution fails', asyn
         },
         tools: createDefaultToolRegistry({ workspaceRoot: process.cwd() }),
         logger: {
-          log: async (entry) => {
+          log: async (entry: Record<string, unknown>) => {
             events.push(entry);
+            return entry;
           },
         },
       }),
@@ -161,7 +170,15 @@ test('startCli logs process.error before session.end when execution fails', asyn
 
   assert.deepEqual(
     events.map((entry) => entry.event),
-    ['session.start', 'runtime.step.start', 'provider.generate.start', 'provider.generate.error', 'runtime.step.end', 'process.error', 'session.end'],
+    [
+      'session.start',
+      'runtime.step.start',
+      'provider.generate.start',
+      'provider.generate.error',
+      'runtime.step.end',
+      'process.error',
+      'session.end',
+    ],
   );
 });
 
@@ -185,8 +202,9 @@ test('startCli writes session.start logs before the first prompt when cli mirror
     },
     tools: createDefaultToolRegistry({ workspaceRoot: process.cwd() }),
     logger: {
-      log: async (entry) => {
-        outputStream.write(`[log] ${entry.event}\n`);
+      log: async (entry: Record<string, unknown>) => {
+        outputStream.write(`[log] ${String(entry.event)}\n`);
+        return entry;
       },
     },
   });
@@ -207,13 +225,13 @@ test('startCli restores the active session before creating a new one', async () 
     },
   });
 
-  const storeCalls = [];
+  const storeCalls: Array<string | [string, string]> = [];
   const fakeStore = {
     async loadActiveSession() {
       storeCalls.push('loadActiveSession');
       return {
         sessionId: '2026-07-23/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-        messages: [{ role: 'system', content: 'system prompt' }],
+        messages: [{ role: 'system' as const, content: 'system prompt' }],
         nextTurn: 1,
       };
     },
@@ -225,9 +243,9 @@ test('startCli restores the active session before creating a new one', async () 
       storeCalls.push('persistCompletedTurn');
       return {
         messages: [
-          { role: 'system', content: 'system prompt' },
-          { role: 'user', content: 'hi' },
-          { role: 'assistant', content: 'Done.' },
+          { role: 'system' as const, content: 'system prompt' },
+          { role: 'user' as const, content: 'hi' },
+          { role: 'assistant' as const, content: 'Done.' },
         ],
         nextTurn: 2,
       };
@@ -244,10 +262,7 @@ test('startCli restores the active session before creating a new one', async () 
     sessionStore: fakeStore,
   });
 
-  assert.deepEqual(storeCalls, [
-    'loadActiveSession',
-    'persistCompletedTurn',
-  ]);
+  assert.deepEqual(storeCalls, ['loadActiveSession', 'persistCompletedTurn']);
   assert.match(output, /assistant> Done\./);
 });
 
@@ -261,17 +276,17 @@ test('startCli creates a session when no active session exists', async () => {
     },
   });
 
-  const storeCalls = [];
+  const storeCalls: Array<string | [string, string]> = [];
   const fakeStore = {
     async loadActiveSession() {
       storeCalls.push('loadActiveSession');
       return null;
     },
-    async createSession({ initialMessages }) {
-      storeCalls.push(['createSession', initialMessages[0].role]);
+    async createSession({ initialMessages }: { initialMessages: Array<{ role: string }> }) {
+      storeCalls.push(['createSession', initialMessages[0]?.role || '']);
       return {
         sessionId: '2026-07-23/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-        messages: initialMessages,
+        messages: initialMessages as Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
         nextTurn: 1,
       };
     },
@@ -279,9 +294,9 @@ test('startCli creates a session when no active session exists', async () => {
       storeCalls.push('persistCompletedTurn');
       return {
         messages: [
-          { role: 'system', content: 'system prompt' },
-          { role: 'user', content: 'hi' },
-          { role: 'assistant', content: 'Done.' },
+          { role: 'system' as const, content: 'system prompt' },
+          { role: 'user' as const, content: 'hi' },
+          { role: 'assistant' as const, content: 'Done.' },
         ],
         nextTurn: 2,
       };

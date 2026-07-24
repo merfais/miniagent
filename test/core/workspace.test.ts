@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { normalizeWorkspaceRoot, resolveWorkspacePath } from '../../src/core/workspace';
+import { normalizeWorkspaceRoot, resolveWorkspacePath } from '../../src/core/workspace.js';
 
 test('normalizeWorkspaceRoot resolves an absolute workspace path', () => {
   assert.equal(normalizeWorkspaceRoot('.'), path.resolve('.'));

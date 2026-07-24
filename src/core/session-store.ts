@@ -11,7 +11,7 @@ import type {
   SessionMeta,
   ToolCallTrace,
   ToolResultHistoryRecord,
-} from './types';
+} from './types.js';
 
 export const INLINE_TOOL_RESULT_LIMIT = 16 * 1024;
 const SESSION_META_LOCK_RETRY_MS = 5;

@@ -1,22 +1,71 @@
 #!/usr/bin/env node
 
-const fs = require('node:fs/promises');
-const path = require('node:path');
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
-const { startCli } = require('./cli/chat-cli');
-const { createSessionId, createSessionLogger, logEvent } = require('./core/logger');
-const { createSessionStore } = require('./core/session-store');
-const { OpenAiCompatibleProvider } = require('./providers/openai-compatible');
+import { startCli } from './cli/chat-cli.js';
+import { createSessionId, createSessionLogger, logEvent } from './core/logger.js';
+import { createSessionStore } from './core/session-store.js';
+import { OpenAiCompatibleProvider } from './providers/openai-compatible.js';
 
-async function loadConfig({
-  cwd = process.cwd(),
-  configPath = path.join(cwd, 'miniagent.config.json'),
-} = {}) {
-  const raw = await fs.readFile(configPath, 'utf8');
-  return JSON.parse(raw);
+interface ProviderConfig {
+  type: 'openai-compatible';
+  model?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  apiKeyEnv?: string;
 }
 
-function createProviderFromEnv(env = process.env) {
+interface AppConfig {
+  logToCli?: boolean;
+  logDir?: string;
+  provider?: ProviderConfig;
+}
+
+interface LoadConfigOptions {
+  cwd?: string;
+  configPath?: string;
+}
+
+interface CreateProviderOptions {
+  cwd?: string;
+  configPath?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+interface CreateLoggerOptions {
+  cwd?: string;
+  config?: AppConfig;
+  output?: NodeJS.WritableStream;
+  sessionId?: string;
+}
+
+interface CreateAppContextOptions extends CreateProviderOptions {
+  config?: AppConfig | null;
+  output?: NodeJS.WritableStream;
+}
+
+interface MainOptions extends CreateProviderOptions {
+  output?: NodeJS.WritableStream;
+}
+
+export interface AppContext {
+  config: AppConfig;
+  logger: ReturnType<typeof createLoggerFromConfig>;
+  provider: OpenAiCompatibleProvider;
+  sessionId: string;
+  sessionStore: ReturnType<typeof createSessionStore>;
+}
+
+export async function loadConfig({
+  cwd = process.cwd(),
+  configPath = path.join(cwd, 'miniagent.config.json'),
+}: LoadConfigOptions = {}): Promise<AppConfig> {
+  const raw = await fs.readFile(configPath, 'utf8');
+  return JSON.parse(raw) as AppConfig;
+}
+
+export function createProviderFromEnv(env: NodeJS.ProcessEnv = process.env): OpenAiCompatibleProvider {
   const apiKey = env.OPENAI_API_KEY || env.OPENAI_API_KEY;
   const model = env.ARK_MODEL;
 
@@ -35,7 +84,10 @@ function createProviderFromEnv(env = process.env) {
   });
 }
 
-function createProviderFromObject(config, env = process.env) {
+export function createProviderFromObject(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): OpenAiCompatibleProvider {
   const providerConfig = config && config.provider;
   if (!providerConfig || typeof providerConfig !== 'object') {
     throw new Error('Missing provider config in miniagent.config.json');
@@ -67,16 +119,17 @@ function createProviderFromObject(config, env = process.env) {
   });
 }
 
-async function createProviderFromConfig({
+export async function createProviderFromConfig({
   cwd = process.cwd(),
   configPath = path.join(cwd, 'miniagent.config.json'),
   env = process.env,
-} = {}) {
+}: CreateProviderOptions = {}): Promise<OpenAiCompatibleProvider> {
   try {
     const config = await loadConfig({ cwd, configPath });
     return createProviderFromObject(config, env);
   } catch (error) {
-    if (error && error.code === 'ENOENT') {
+    const configError = error as NodeJS.ErrnoException;
+    if (configError && configError.code === 'ENOENT') {
       return createProviderFromEnv(env);
     }
 
@@ -84,19 +137,23 @@ async function createProviderFromConfig({
   }
 }
 
-function normalizeLoggingConfig(config = {}) {
+export function normalizeLoggingConfig(config: AppConfig = {}): {
+  logToCli: boolean;
+  logDir: string;
+} {
   return {
     logToCli: config.logToCli === true,
-    logDir: typeof config.logDir === 'string' && config.logDir.trim() !== '' ? config.logDir : 'logs',
+    logDir:
+      typeof config.logDir === 'string' && config.logDir.trim() !== '' ? config.logDir : 'logs',
   };
 }
 
-function createLoggerFromConfig({
+export function createLoggerFromConfig({
   cwd = process.cwd(),
   config = {},
   output = process.stdout,
   sessionId = createSessionId(),
-} = {}) {
+}: CreateLoggerOptions = {}) {
   const { logToCli, logDir } = normalizeLoggingConfig(config);
 
   return createSessionLogger({
@@ -104,19 +161,21 @@ function createLoggerFromConfig({
     sessionId,
     logDir,
     logToCli,
-    cliWriter: (line) => output.write(line),
+    cliWriter: (line: string) => output.write(line),
   });
 }
 
-async function createAppContextFromConfig({
+export async function createAppContextFromConfig({
   cwd = process.cwd(),
   configPath = path.join(cwd, 'miniagent.config.json'),
   config,
   env = process.env,
   output = process.stdout,
-} = {}) {
+}: CreateAppContextOptions = {}): Promise<AppContext> {
   const sessionId = createSessionId();
-  let logger;
+  let logger:
+    | ReturnType<typeof createLoggerFromConfig>
+    | undefined;
 
   try {
     let resolvedConfig = config;
@@ -125,7 +184,8 @@ async function createAppContextFromConfig({
       try {
         resolvedConfig = await loadConfig({ cwd, configPath });
       } catch (error) {
-        if (error && error.code === 'ENOENT') {
+        const configError = error as NodeJS.ErrnoException;
+        if (configError && configError.code === 'ENOENT') {
           resolvedConfig = null;
         } else {
           throw error;
@@ -152,6 +212,7 @@ async function createAppContextFromConfig({
       sessionStore: createSessionStore({ workspaceRoot: cwd }),
     };
   } catch (error) {
+    const appError = error instanceof Error ? error : new Error(String(error));
     if (!logger) {
       logger = createLoggerFromConfig({
         cwd,
@@ -161,17 +222,17 @@ async function createAppContextFromConfig({
       });
     }
 
-    await logEvent(logger, { event: 'process.error', error: error.message });
-    throw error;
+    await logEvent(logger, { event: 'process.error', error: appError.message });
+    throw appError;
   }
 }
 
-async function main({
+export async function main({
   cwd = process.cwd(),
   configPath = path.join(cwd, 'miniagent.config.json'),
   env = process.env,
   output = process.stdout,
-} = {}) {
+}: MainOptions = {}): Promise<void> {
   const { provider, logger, sessionStore } = await createAppContextFromConfig({
     cwd,
     configPath,
@@ -182,27 +243,18 @@ async function main({
   try {
     await startCli({ provider, logger, output, workspaceRoot: cwd, sessionStore });
   } catch (error) {
-    if (!error.loggedToSession) {
-      await logEvent(logger, { event: 'process.error', error: error.message });
+    const mainError = error as Error & { loggedToSession?: boolean };
+    if (!mainError.loggedToSession) {
+      await logEvent(logger, { event: 'process.error', error: mainError.message });
     }
-    throw error;
+    throw mainError;
   }
 }
 
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((error) => {
-    console.error(error.message);
+    const mainError = error instanceof Error ? error : new Error(String(error));
+    console.error(mainError.message);
     process.exitCode = 1;
   });
 }
-
-module.exports = {
-  createAppContextFromConfig,
-  createLoggerFromConfig,
-  createProviderFromConfig,
-  createProviderFromEnv,
-  createProviderFromObject,
-  loadConfig,
-  normalizeLoggingConfig,
-  main,
-};

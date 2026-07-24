@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ToolRegistry } from '../../src/core/tool-registry';
-import type { ProviderAction } from '../../src/core/types';
-import { AgentRuntime } from '../../src/agent/runtime';
+import { ToolRegistry } from '../../src/core/tool-registry.js';
+import type { ProviderAction } from '../../src/core/types.js';
+import { AgentRuntime } from '../../src/agent/runtime.js';
 
 function nextProviderOutput<T>(outputs: T[]): T {
   const output = outputs.shift();

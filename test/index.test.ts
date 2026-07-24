@@ -1,14 +1,14 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
-const os = require('node:os');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
-const {
+import {
   createAppContextFromConfig,
   createProviderFromConfig,
   loadConfig,
-} = require('../src/index');
+} from '../src/index.js';
 
 test('loadConfig reads miniagent.config.json from the workspace', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-config-'));
@@ -28,16 +28,16 @@ test('loadConfig reads miniagent.config.json from the workspace', async () => {
   );
 
   const config = await loadConfig({ cwd: root });
+  assert.ok(config.provider);
   assert.equal(config.provider.type, 'openai-compatible');
   assert.equal(config.provider.apiKey, 'config-key');
 });
 
 test('createProviderFromConfig prefers apiKey from config file over env fallback', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-provider-'));
-  const configPath = path.join(root, 'miniagent.config.json');
 
   await fs.writeFile(
-    configPath,
+    path.join(root, 'miniagent.config.json'),
     JSON.stringify({
       provider: {
         type: 'openai-compatible',
@@ -63,10 +63,9 @@ test('createProviderFromConfig prefers apiKey from config file over env fallback
 
 test('createProviderFromConfig supports apiKeyEnv in config file', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-provider-env-'));
-  const configPath = path.join(root, 'miniagent.config.json');
 
   await fs.writeFile(
-    configPath,
+    path.join(root, 'miniagent.config.json'),
     JSON.stringify({
       provider: {
         type: 'openai-compatible',
@@ -90,10 +89,9 @@ test('createProviderFromConfig supports apiKeyEnv in config file', async () => {
 
 test('loadConfig preserves logToCli and logDir from miniagent.config.json', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-log-config-'));
-  const configPath = path.join(root, 'miniagent.config.json');
 
   await fs.writeFile(
-    configPath,
+    path.join(root, 'miniagent.config.json'),
     JSON.stringify({
       logToCli: true,
       logDir: '.miniagent-trace',
@@ -156,8 +154,8 @@ test('createAppContextFromConfig falls back to defaults for invalid log config t
   const { logger } = await createAppContextFromConfig({
     cwd: root,
     config: {
-      logToCli: 'yes',
-      logDir: 42,
+      logToCli: 'yes' as unknown as boolean,
+      logDir: 42 as unknown as string,
       provider: {
         type: 'openai-compatible',
         model: 'doubao-test-model',
@@ -179,7 +177,7 @@ test('createAppContextFromConfig logs process.error before surfacing startup fai
         config: {
           logDir: 'logs',
           provider: {
-            type: 'unsupported',
+            type: 'unsupported' as 'openai-compatible',
           },
         },
       }),

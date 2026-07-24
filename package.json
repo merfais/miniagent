@@ -2,18 +2,27 @@
   "name": "miniagent",
   "version": "1.0.0",
   "description": "A minimal prompt-driven coding agent for the terminal",
-  "type": "commonjs",
-  "main": "src/index.js",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "bin": {
-    "miniagent": "./src/index.js"
+    "miniagent": "./dist/src/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
   },
   "scripts": {
-    "start": "node src/index.js",
-    "test": "node --test",
+    "start": "tsx src/index.ts",
+    "dev": "tsx src/index.ts",
+    "test": "node --import tsx --test test/*.test.ts test/**/*.test.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
-    "test:ts": "node --import tsx --test test/**/*.test.ts",
-    "test:dist": "node --test dist/test/**/*.test.js"
+    "test:ts": "node --import tsx --test test/*.test.ts test/**/*.test.ts",
+    "start:dist": "node dist/src/index.js",
+    "test:dist": "node --test dist/test/*.test.js dist/test/**/*.test.js"
   },
   "author": "",
   "license": "ISC",

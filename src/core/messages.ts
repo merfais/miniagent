@@ -1,4 +1,4 @@
-import type { Message, MessageRole, ToolMessage } from './types';
+import type { Message, MessageRole, ToolMessage } from './types.js';
 
 export function createMessage<T extends Record<string, unknown> = Record<string, never>>(
   role: MessageRole,

@@ -9,7 +9,7 @@ import {
   createSessionId,
   logEvent,
   resolveLogFilePath,
-} from '../../src/core/logger';
+} from '../../src/core/logger.js';
 
 test('resolveLogFilePath uses the default logs directory and date partition', () => {
   const result = resolveLogFilePath({

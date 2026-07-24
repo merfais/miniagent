@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createFileTools } from '../../src/tools/file-tools';
+import { createFileTools } from '../../src/tools/file-tools.js';
 
 test('read_file and write_file stay inside the workspace root', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-files-'));

@@ -1,29 +1,99 @@
-const readline = require('node:readline/promises');
-const { stdin, stdout } = require('node:process');
+import readline from 'node:readline/promises';
+import { stdin, stdout } from 'node:process';
+import type { Readable } from 'node:stream';
+import type { Interface as ReadlineInterface } from 'node:readline';
 
-const { AgentRuntime } = require('../agent/runtime');
-const { SYSTEM_PROMPT } = require('../agent/system-prompt');
-const { logEvent } = require('../core/logger');
-const { createMessage } = require('../core/messages');
-const { ToolRegistry } = require('../core/tool-registry');
-const { createFileTools } = require('../tools/file-tools');
-const { createShellTool } = require('../tools/shell-tool');
-const { createWebSearchTool } = require('../tools/web-search-tool');
+import { AgentRuntime } from '../agent/runtime.js';
+import { SYSTEM_PROMPT } from '../agent/system-prompt.js';
+import { logEvent } from '../core/logger.js';
+import { createMessage } from '../core/messages.js';
+import { ToolRegistry } from '../core/tool-registry.js';
+import type { Message, SessionLogger, ToolDefinition, ToolInputSchema } from '../core/types.js';
+import { createFileTools } from '../tools/file-tools.js';
+import { createShellTool } from '../tools/shell-tool.js';
+import { createWebSearchTool } from '../tools/web-search-tool.js';
+import type { FetchLike } from '../tools/web-search-tool.js';
 
-function renderToolCall({ toolName, args }) {
+interface ToolRegistryFactoryOptions {
+  workspaceRoot: string;
+  fetchImpl?: FetchLike;
+}
+
+interface SessionStoreLike {
+  loadActiveSession(): Promise<{
+    sessionId: string;
+    messages: Message[];
+    nextTurn: number;
+  } | null>;
+  createSession(options: { initialMessages: Message[] }): Promise<{
+    sessionId: string;
+    messages: Message[];
+    nextTurn: number;
+  }>;
+  persistCompletedTurn(options: {
+    sessionId: string;
+    turn: number;
+    userMessage: Message;
+    assistantMessage: Message;
+    toolTrace: Array<{
+      callId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+      result: unknown;
+    }>;
+  }): Promise<{
+    messages: Message[];
+    nextTurn: number;
+  }>;
+}
+
+interface StartCliOptions {
+  input?: Readable;
+  output?: NodeJS.WritableStream;
+  provider: {
+    generate(args: {
+      messages: Message[];
+      tools: ToolDefinition[];
+    }): Promise<{ type: 'tool_call'; callId: string; toolName: string; args: Record<string, unknown> } | { type: 'final_answer' | 'assistant_message'; content: string }>;
+  };
+  tools?: ToolRegistry;
+  logger?: Pick<SessionLogger, 'log'> | null;
+  workspaceRoot?: string;
+  fetchImpl?: FetchLike;
+  sessionStore?: SessionStoreLike;
+}
+
+export function renderToolCall({
+  toolName,
+  args,
+}: {
+  toolName: string;
+  args: Record<string, unknown>;
+}): string {
   return `[tool] ${toolName} ${JSON.stringify(args || {})}`;
 }
 
-function registerFunctionTools(registry, definitions, methods) {
+function registerFunctionTools(
+  registry: ToolRegistry,
+  definitions: Array<{
+    name: string;
+    description: string;
+    inputSchema: ToolInputSchema;
+  }>,
+  methods: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+): void {
   for (const definition of definitions) {
     registry.register({
       ...definition,
-      execute: methods[definition.name],
+      execute: methods[definition.name]!,
     });
   }
 }
 
-function createDefaultToolRegistry({ workspaceRoot, fetchImpl }) {
+export function createDefaultToolRegistry({
+  workspaceRoot,
+  fetchImpl,
+}: ToolRegistryFactoryOptions): ToolRegistry {
   const registry = new ToolRegistry();
   const fileTools = createFileTools({ workspaceRoot });
   const shellTool = createShellTool({ workspaceRoot });
@@ -74,7 +144,7 @@ function createDefaultToolRegistry({ workspaceRoot, fetchImpl }) {
         },
       },
     ],
-    fileTools,
+    fileTools as unknown as Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
   );
 
   registry.register({
@@ -107,37 +177,15 @@ function createDefaultToolRegistry({ workspaceRoot, fetchImpl }) {
   return registry;
 }
 
-async function readUserMessage(rl) {
-  try {
-    const firstLine = await rl.question('you> ');
-    if (!firstLine) {
-      return '';
-    }
-
-    if (firstLine === ':multiline') {
-      stdout.write('(multiline mode, finish with :end)\n');
-      const lines = [];
-      while (true) {
-        const line = await rl.question('... ');
-        if (line === ':end') {
-          return lines.join('\n');
-        }
-
-        lines.push(line);
-      }
-    }
-
-    return firstLine;
-  } catch (error) {
-    if (error && error.code === 'ERR_USE_AFTER_CLOSE') {
-      return null;
-    }
-
-    throw error;
-  }
-}
-
-function createRuntime({ provider, tools, logger }) {
+export function createRuntime({
+  provider,
+  tools,
+  logger,
+}: {
+  provider: StartCliOptions['provider'];
+  tools: ToolRegistry;
+  logger?: Pick<SessionLogger, 'log'> | null;
+}): AgentRuntime {
   return new AgentRuntime({
     provider,
     tools,
@@ -145,7 +193,7 @@ function createRuntime({ provider, tools, logger }) {
   });
 }
 
-async function startCli({
+export async function startCli({
   input = stdin,
   output = stdout,
   provider,
@@ -154,14 +202,14 @@ async function startCli({
   workspaceRoot = process.cwd(),
   fetchImpl = global.fetch,
   sessionStore,
-} = {}) {
+}: StartCliOptions): Promise<void> {
   const runtime = createRuntime({
     provider,
     tools: tools || createDefaultToolRegistry({ workspaceRoot, fetchImpl }),
     logger,
   });
 
-  const rl = readline.createInterface({
+  const rl: ReadlineInterface = readline.createInterface({
     input,
     output,
   });
@@ -175,7 +223,7 @@ async function startCli({
         })
       : null);
 
-  let sessionId = currentSession ? currentSession.sessionId : null;
+  const sessionId = currentSession ? currentSession.sessionId : null;
   let nextTurn = currentSession ? currentSession.nextTurn : 1;
   let messages = currentSession
     ? currentSession.messages
@@ -188,7 +236,7 @@ async function startCli({
 
   let saidBye = false;
   let multiline = false;
-  const multilineLines = [];
+  const multilineLines: string[] = [];
   try {
     for await (const line of rl) {
       let userInput = line;
@@ -229,12 +277,13 @@ async function startCli({
       try {
         result = await runtime.respond(messages);
       } catch (error) {
+        const runtimeError = error instanceof Error ? error : new Error(String(error));
         await logEvent(logger, {
           event: 'process.error',
-          error: error.message,
+          error: runtimeError.message,
         });
-        error.loggedToSession = true;
-        throw error;
+        (runtimeError as Error & { loggedToSession?: boolean }).loggedToSession = true;
+        throw runtimeError;
       }
 
       for (const entry of result.trace) {
@@ -270,11 +319,3 @@ async function startCli({
     rl.close();
   }
 }
-
-module.exports = {
-  createDefaultToolRegistry,
-  createRuntime,
-  readUserMessage,
-  renderToolCall,
-  startCli,
-};

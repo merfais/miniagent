@@ -65,6 +65,13 @@ export ARK_MODEL="your_model_id"
 npm start
 ```
 
+Build and run the compiled output:
+
+```bash
+npm run build
+npm run start:dist
+```
+
 In the chat:
 
 - type `:quit` to exit,
@@ -88,4 +95,11 @@ Local file tools are restricted to the current workspace root. The shell tool re
 
 ```bash
 npm test
+```
+
+Type-check and verify the compiled output:
+
+```bash
+npm run typecheck
+npm run test:dist
 ```

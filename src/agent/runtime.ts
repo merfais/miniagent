@@ -1,12 +1,12 @@
-import { logEvent } from '../core/logger';
-import { createToolMessage } from '../core/messages';
+import { logEvent } from '../core/logger.js';
+import { createToolMessage } from '../core/messages.js';
 import type {
   Message,
   ProviderAction,
   RegisteredTool,
   SessionLogger,
   ToolCallTrace,
-} from '../core/types';
+} from '../core/types.js';
 
 interface ProviderLike {
   generate(args: { messages: Message[]; tools: RegisteredTool[] }): Promise<ProviderAction>;

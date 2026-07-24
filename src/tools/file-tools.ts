@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { normalizeWorkspaceRoot, resolveWorkspacePath } from '../core/workspace';
+import { normalizeWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
 
 async function listFilesRecursive(
   root: string,

@@ -13,7 +13,7 @@ interface SearchResponseLike {
   json: () => Promise<unknown>;
 }
 
-type FetchLike = (url: URL) => Promise<SearchResponseLike>;
+export type FetchLike = (url: URL) => Promise<SearchResponseLike>;
 
 function flattenRelatedTopics(
   items: Array<RelatedTopicLeaf | RelatedTopicGroup> | undefined,
@@ -42,7 +42,8 @@ export function createWebSearchTool({
   }
 
   return {
-    async web_search({ query }: { query: string }) {
+    async web_search(args: Record<string, unknown>) {
+      const { query } = args;
       if (typeof query !== 'string' || query.trim() === '') {
         throw new Error('Search query is required');
       }

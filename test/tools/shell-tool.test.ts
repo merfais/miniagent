@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createShellTool } from '../../src/tools/shell-tool';
+import { createShellTool } from '../../src/tools/shell-tool.js';
 
 test('run_command rejects dangerous commands', async () => {
   const tool = createShellTool({ workspaceRoot: process.cwd() });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ToolRegistry } from '../../src/core/tool-registry';
+import { ToolRegistry } from '../../src/core/tool-registry.js';
 
 test('ToolRegistry registers tools and prevents duplicates', () => {
   const registry = new ToolRegistry();

@@ -1,4 +1,4 @@
-import type { Message, ProviderAction, ToolDefinition, ToolMessage } from '../core/types';
+import type { Message, ProviderAction, ToolDefinition, ToolMessage } from '../core/types.js';
 
 interface FunctionToolShape {
   name: string;

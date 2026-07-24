@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createSessionStore } from '../../src/core/session-store';
+import { createSessionStore } from '../../src/core/session-store.js';
 
 test('createSession creates a dated session directory and updates meta.json', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-session-store-'));

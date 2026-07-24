@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { normalizeWorkspaceRoot, resolveWorkspacePath } from '../core/workspace';
+import { normalizeWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
 
 const execFileAsync = promisify(execFile);
 

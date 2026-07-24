@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createWebSearchTool } from '../../src/tools/web-search-tool';
+import { createWebSearchTool } from '../../src/tools/web-search-tool.js';
 
 test('web_search normalizes instant answer search results', async () => {
   const tool = createWebSearchTool({
