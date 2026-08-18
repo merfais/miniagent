@@ -8,10 +8,7 @@ export function normalizeWorkspaceRoot(workspaceRoot: string): string {
   return path.resolve(workspaceRoot);
 }
 
-export function resolveWorkspacePath(
-  workspaceRoot: string,
-  targetPath = '.',
-): string {
+export function resolveWorkspacePath(workspaceRoot: string, targetPath = '.'): string {
   const root = normalizeWorkspaceRoot(workspaceRoot);
   const resolved = path.resolve(root, targetPath);
   const relative = path.relative(root, resolved);

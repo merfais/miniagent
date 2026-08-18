@@ -5,75 +5,65 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  createBootLogger,
   createSessionLogger,
-  createSessionId,
-  logEvent,
-  resolveLogFilePath,
+  logger,
+  stdLogger,
+  type LogRecord,
 } from '../../src/core/logger.js';
 
-test('resolveLogFilePath uses the default logs directory and date partition', () => {
-  const result = resolveLogFilePath({
-    workspaceRoot: '/workspace/demo',
-    logDir: undefined,
-    sessionId: 'ab12cd34',
-    now: new Date('2026-07-17T08:00:00Z'),
-  });
-
-  assert.equal(result, path.join('/workspace/demo', 'logs', '2026-07-17', 'ab12cd34.log'));
-});
-
-test('createSessionLogger writes json lines to the configured log file', async () => {
+test('createBootLogger writes to boot log file under cwd/logDir/date', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-logger-'));
-  const writes: string[] = [];
-  const logger = createSessionLogger({
-    workspaceRoot: root,
-    sessionId: 'ab12cd34',
-    logDir: 'trace-output',
-    logToCli: false,
-    cliWriter: (line) => writes.push(line),
-    now: new Date('2026-07-17T08:00:00Z'),
-  });
+  const originalCwd = process.cwd();
+  process.chdir(root);
+  try {
+    createBootLogger({ logDir: 'trace-output' });
+    logger.info('boot.start', { step: 1 });
 
-  await logger.log({ event: 'session.start' });
-  const file = path.join(root, 'trace-output', '2026-07-17', 'ab12cd34.log');
-  const content = await fs.readFile(file, 'utf8');
-  const parsed = JSON.parse(content.trim());
-
-  assert.equal(parsed.sessionId, 'ab12cd34');
-  assert.equal(parsed.event, 'session.start');
-  assert.deepEqual(writes, []);
+    const date = new Date().toISOString().slice(0, 10);
+    const dir = path.join(root, 'trace-output', date);
+    const entries = await fs.readdir(dir);
+    const bootFile = entries.find((f) => /^sys-\d{6}-[a-f0-9]{4}\.log$/.test(f));
+    assert.ok(bootFile, `expected sys log in ${dir}, got ${entries.join(',')}`);
+    const content = await fs.readFile(path.join(dir, bootFile as string), 'utf8');
+    const parsed = JSON.parse(content.trim().split('\n')[0]);
+    assert.equal(parsed.message, 'boot.start');
+  } finally {
+    process.chdir(originalCwd);
+  }
 });
 
-test('createSessionLogger mirrors logs to cli when logToCli is enabled', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-logger-cli-'));
-  const writes: string[] = [];
-  const logger = createSessionLogger({
-    workspaceRoot: root,
-    sessionId: 'ab12cd34',
-    logDir: 'logs',
-    logToCli: true,
-    cliWriter: (line) => writes.push(line),
-    now: new Date('2026-07-17T08:00:00Z'),
-  });
+test('createSessionLogger increments n from meta.json and creates session log', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'miniagent-logger-session-'));
+  const originalCwd = process.cwd();
+  process.chdir(root);
+  try {
+    createBootLogger();
+    const first = createSessionLogger();
+    const second = createSessionLogger();
 
-  await logger.log({ event: 'provider.generate.start', step: 1 });
+    assert.match(first.sessionId, /^1-\d{6}-[a-f0-9]{4}$/);
+    assert.match(second.sessionId, /^2-\d{6}-[a-f0-9]{4}$/);
 
-  assert.match(writes[0], /\[log\]/);
-  assert.match(writes[0], /provider\.generate\.start/);
+    const date = new Date().toISOString().slice(0, 10);
+    const metaRaw = await fs.readFile(path.join(root, 'logs', date, 'meta.json'), 'utf8');
+    assert.deepEqual(JSON.parse(metaRaw), { n: 2 });
+
+    first.logger.info('hello.session');
+    const content = await fs.readFile(first.filePath, 'utf8');
+    assert.match(content, /hello\.session/);
+  } finally {
+    process.chdir(originalCwd);
+  }
 });
 
-test('createSessionId returns a short random identifier', () => {
-  const sessionId = createSessionId();
-  assert.match(sessionId, /^[a-f0-9]{8}$/);
+test('stdLogger writes to stdout and does not throw', () => {
+  assert.doesNotThrow(() => stdLogger.info('hello'));
 });
 
-test('logEvent resolves to undefined even when the logger returns a value', async () => {
-  const result = await logEvent(
-    {
-      log: async () => ({ ok: true }),
-    },
-    { event: 'session.start' },
-  );
-
-  assert.equal(result, undefined);
+test('logger buffers records before init and can be captured with setSinks', () => {
+  const records: LogRecord[] = [];
+  logger.setSinks([{ write: (r) => records.push(r) }]);
+  logger.info('captured');
+  assert.equal(records.at(-1)?.message, 'captured');
 });

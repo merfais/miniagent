@@ -9,7 +9,7 @@ test('ToolRegistry registers tools and prevents duplicates', () => {
   registry.register({
     name: 'echo',
     description: 'Echo input',
-    inputSchema: { type: 'object', properties: {} },
+    parameters: { type: 'object', properties: {} },
     execute: async () => ({ ok: true }),
   });
 
@@ -20,7 +20,7 @@ test('ToolRegistry registers tools and prevents duplicates', () => {
     registry.register({
       name: 'echo',
       description: 'Duplicate',
-      inputSchema: { type: 'object', properties: {} },
+      parameters: { type: 'object', properties: {} },
       execute: async () => ({ ok: true }),
     });
   }, /already registered/i);
@@ -43,7 +43,7 @@ test('ToolRegistry validates tool arguments against required schema fields', () 
   registry.register({
     name: 'write_file',
     description: 'Write a file',
-    inputSchema: {
+    parameters: {
       type: 'object',
       properties: {
         path: { type: 'string' },

@@ -1,4 +1,19 @@
-import type { RegisteredTool, ToolDefinition, ToolInputSchema } from './types.js';
+interface JsonSchemaObject {
+  type?: string;
+  properties?: Record<string, { type?: string } | undefined>;
+  required?: string[];
+}
+
+export interface ToolDefinition {
+  name: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+  execute: (args: Record<string, unknown>) => Promise<unknown> | unknown;
+}
+
+export interface RegisteredTool extends ToolDefinition {
+  validateArgs: (args: Record<string, unknown>) => void;
+}
 
 export class ToolRegistry {
   private readonly tools = new Map<string, RegisteredTool>();
@@ -32,7 +47,7 @@ export class ToolRegistry {
 }
 
 function createArgsValidator(tool: ToolDefinition): (args?: Record<string, unknown>) => void {
-  const schema: ToolInputSchema = tool.inputSchema || { type: 'object', properties: {} };
+  const schema = (tool.parameters ?? { type: 'object', properties: {} }) as JsonSchemaObject;
 
   return function validateArgs(args: Record<string, unknown> = {}): void {
     if (schema.type && schema.type !== 'object') {

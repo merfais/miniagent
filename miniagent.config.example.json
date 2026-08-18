@@ -1,10 +1,12 @@
 {
-  "logDir": "logs",
-  "logToCli": false,
+  "log": {
+    "logDir": "logs",
+    "logToCli": false
+  },
   "provider": {
-    "type": "openai-compatible",
+    "type": "openai-chat",
     "model": "your_model_id",
-    "baseUrl": "https://api.openai.com/v1",
+    "baseURL": "https://api.openai.com/v1",
     "apiKey": "your_api_key"
   }
 }

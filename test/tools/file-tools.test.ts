@@ -16,10 +16,7 @@ test('read_file and write_file stay inside the workspace root', async () => {
 
   assert.equal(result.path, filePath);
   assert.match(result.content, /hello/);
-  await assert.rejects(
-    () => tools.read_file({ path: '../outside.txt' }),
-    /outside the workspace/i,
-  );
+  await assert.rejects(() => tools.read_file({ path: '../outside.txt' }), /outside the workspace/i);
 });
 
 test('list_files returns relative file paths and search_code finds matches', async () => {
