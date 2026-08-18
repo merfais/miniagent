@@ -5,7 +5,7 @@ MiniAgent is a minimal prompt-driven coding agent for the terminal. It is intent
 ## Requirements
 
 - Node.js 22+
-- A OpenAI-compatible Ark API key
+- An OpenAI or Anthropic API key
 
 ## Configuration
 
@@ -21,12 +21,14 @@ Then edit `miniagent.config.json`:
 
 ```json
 {
-  "logDir": "logs",
-  "logToCli": false,
+  "log": {
+    "logDir": "logs",
+    "logToCli": false
+  },
   "provider": {
-    "type": "openai-compatible",
+    "type": "openai-chat",
     "model": "your_model_id",
-    "baseUrl": "https://api.openai.com/v1",
+    "baseURL": "https://api.openai.com/v1",
     "apiKey": "your_api_key"
   }
 }
@@ -34,30 +36,22 @@ Then edit `miniagent.config.json`:
 
 Logging is always written to disk. By default MiniAgent stores one JSON Lines file per session under `logs/{YYYY-MM-DD}/{sessionId}.log`.
 
-- `logDir` changes the base log directory while keeping the date and session layout.
-- `logToCli: true` mirrors the same structured log events to the terminal.
+- `log.logDir` changes the base log directory while keeping the date and session layout.
+- `log.logToCli: true` mirrors the same structured log events to the terminal.
 
-If you prefer not to store the API key in the config file, use `apiKeyEnv`:
-
-```json
-{
-  "provider": {
-    "type": "openai-compatible",
-    "model": "your_model_id",
-    "baseUrl": "https://api.openai.com/v1",
-    "apiKeyEnv": "OPENAI_API_KEY"
-  }
-}
-```
-
-Environment variables are now a fallback path. The preferred path is the config file.
-
-If `miniagent.config.json` is missing, MiniAgent falls back to the legacy environment variable mode:
+Environment variables can override provider credentials from the config file:
 
 ```bash
 export OPENAI_API_KEY="your_api_key"
-export ARK_MODEL="your_model_id"
+export OPENAI_BASE_URL="https://api.openai.com/v1"
 ```
+
+Supported environment variables are only the SDK-native fields:
+
+- OpenAI: `OPENAI_API_KEY`, `OPENAI_BASE_URL`
+- Anthropic: `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`
+
+`model` must come from `miniagent.config.json`.
 
 ## Usage
 
