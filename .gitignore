@@ -3,5 +3,6 @@ miniagent.config.json
 .worktrees/
 logs/
 dist/
+tmp/
 sessions/
 .miniagent/

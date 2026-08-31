@@ -39,6 +39,10 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
           this.pending.push(resolve);
         });
       },
+      return: (): Promise<IteratorResult<T>> => {
+        this.close();
+        return Promise.resolve({ value: undefined as unknown as T, done: true });
+      },
     };
   }
 }

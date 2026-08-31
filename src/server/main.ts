@@ -1,9 +1,9 @@
 import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
 
 import { resolveConfig } from '../config/app-config.js';
 import { createBootLogger, logger, stdLogger } from '../core/logger.js';
+import { listen } from './http/server.js';
 import { createRouter } from './routes.js';
 import { SessionStore } from './sessions.js';
 
@@ -25,38 +25,24 @@ export async function startServer(
   const config = await resolveConfig({ cwd, configPath, env });
   createBootLogger(config.log);
 
-  const sessions = new SessionStore({ config, cwd });
-  const router = createRouter(sessions);
+  const sessionStore = new SessionStore({ config, cwd });
+  const router = createRouter(sessionStore);
 
-  const server = http.createServer((req, res) => {
-    void router(req, res);
-  });
-
-  const port = opts.port ?? 0;
   const host = opts.host ?? '127.0.0.1';
-
-  await new Promise<void>((resolve) => server.listen(port, host, () => resolve()));
-  const addr = server.address();
-  const actualPort = typeof addr === 'object' && addr ? addr.port : port;
+  const server = await listen(router, { host, port: opts.port ?? 0 });
 
   const runtimeDir = path.join(cwd, '.miniagent');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(
     path.join(runtimeDir, 'runtime.json'),
-    JSON.stringify({ host, port: actualPort, pid: process.pid }, null, 2),
+    JSON.stringify({ host, port: server.port, pid: process.pid }, null, 2),
     'utf8',
   );
 
-  stdLogger.info(`agent server listening on http://${host}:${actualPort}`);
-  logger.info('server.listen', { host, port: actualPort });
+  stdLogger.info(`agent server listening on http://${host}:${server.port}`);
+  logger.info('server.listen', { host, port: server.port });
 
-  return {
-    port: actualPort,
-    close: () =>
-      new Promise((resolve) => {
-        server.close(() => resolve());
-      }),
-  };
+  return server;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
