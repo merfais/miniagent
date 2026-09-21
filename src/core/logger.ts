@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 import type { LogConfig } from '../config/app-config.js';
+import { runtimeRoot } from './workspace.js';
 
 export type LogLevel = 'error' | 'warn' | 'info';
 
@@ -154,12 +155,11 @@ interface LoggerState {
 let state: LoggerState | undefined;
 
 function resolveBaseDir(log?: LogConfig): string {
-  const workspaceRoot = process.cwd();
   const logDir = log?.logDir;
   if (!logDir) {
-    return path.join(workspaceRoot, 'logs');
+    return path.join(runtimeRoot, 'logs');
   }
-  return path.isAbsolute(logDir) ? logDir : path.join(workspaceRoot, logDir);
+  return path.isAbsolute(logDir) ? logDir : path.join(runtimeRoot, logDir);
 }
 
 function metaPath(baseDir: string, date: string): string {

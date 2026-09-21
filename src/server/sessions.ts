@@ -1,79 +1,57 @@
-import type { AppConfig } from '../config/app-config.js';
-import { createAgent } from '../core/agent.js';
-import type { Agent, AgentEvent } from '../core/events.js';
-import { createSessionLogger, logger, type Logger } from '../core/logger.js';
+import type { Handler } from './http/router.js';
+import type { SseEvent } from './http/sse.js';
 
-export type EventListener = (event: AgentEvent) => void;
+// 旧实现（依赖 SessionStore，随 SessionStore 一并作废）：
+// export function createSession(sessionStore: SessionStore): Handler {
+//   return (ctx) => {
+//     const session = sessionStore.create();
+//     ctx.ok({ sessionId: session.id });
+//   };
+// }
+// export function subscribeEvents(sessionStore: SessionStore): Handler {
+//   return async (ctx) => {
+//     const sessionId = ctx.query.get('sessionId') ?? '';
+//     const session = sessionStore.get(sessionId);
+//     if (!session) return ctx.fail(404, 'session_not_found', `session ${sessionId} not found`);
+//     const queue = new AsyncQueue<AgentEvent>();
+//     const unsubscribe = session.subscribe((event) => queue.push(event));
+//     try { await ctx.sse(queue); } finally { unsubscribe(); }
+//   };
+// }
+// export function cancelTurn(sessionStore: SessionStore): Handler {
+//   return (ctx) => {
+//     const sessionId = ctx.query.get('sessionId') ?? '';
+//     const session = sessionStore.get(sessionId);
+//     if (!session) return ctx.fail(404, 'session_not_found', `session ${sessionId} not found`);
+//     session.agent.cancel();
+//     ctx.ok();
+//   };
+// }
+//
+// TODO: 接入真实 session 模块后，约定形态：
+//   const session = sessions.getOrCreate(ctx.query.get('sessionId'));
+//   const lastId = ctx.header('last-event-id') ?? null;
+//   await ctx.sse((signal) => session.subscribe(lastId, signal));
+// session.subscribe(afterEventId, signal): AsyncIterable<SseEvent>
+// 内部负责 eventId replay + live 合并；signal abort 时立即 resolve done 并回收订阅。
 
-export interface Session {
-  id: string;
-  agent: Agent;
-  logger: Logger;
-  turnInProgress: boolean;
-  subscribe(listener: EventListener): () => void;
-  startTurn(content: string): boolean;
-}
+export const createSession: Handler = (ctx) => {
+  ctx.ok({ sessionId: 'mock-session' });
+};
 
-export interface SessionsOptions {
-  config: AppConfig;
-  cwd: string;
-}
+export const subscribeEvents: Handler = async (ctx) => {
+  await ctx.sse(mockSseSource);
+};
 
-export class SessionStore {
-  private readonly sessions = new Map<string, Session>();
+export const cancelTurn: Handler = (ctx) => {
+  ctx.ok();
+};
 
-  constructor(private readonly opts: SessionsOptions) {}
-
-  create(): Session {
-    const { sessionId, logger: sessionLogger } = createSessionLogger();
-    const agent = createAgent({
-      config: this.opts.config,
-      cwd: this.opts.cwd,
-      logger: sessionLogger,
-    });
-    const listeners = new Set<EventListener>();
-    const session: Session = {
-      id: sessionId,
-      agent,
-      logger: sessionLogger,
-      turnInProgress: false,
-      subscribe(listener) {
-        listeners.add(listener);
-        return () => {
-          listeners.delete(listener);
-        };
-      },
-      startTurn(content) {
-        if (this.turnInProgress) {
-          return false;
-        }
-        this.turnInProgress = true;
-        void (async () => {
-          try {
-            for await (const event of agent.sendUserMessage(content)) {
-              for (const l of listeners) {
-                l(event);
-              }
-              if (event.type === 'turn_done') {
-                this.turnInProgress = false;
-              }
-            }
-          } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            sessionLogger.error('session.turn.error', { sessionId, error: err.message });
-            this.turnInProgress = false;
-          }
-        })();
-        return true;
-      },
-    };
-    this.sessions.set(sessionId, session);
-    logger.info('session.create', { sessionId });
-    sessionLogger.info('session.create', { sessionId });
-    return session;
-  }
-
-  get(id: string): Session | undefined {
-    return this.sessions.get(id);
+async function* mockSseSource(signal: AbortSignal): AsyncIterable<SseEvent> {
+  let n = 0;
+  while (n < 3 && !signal.aborted) {
+    n += 1;
+    yield { id: String(n), type: 'mock', data: { n } };
+    await new Promise((r) => setTimeout(r, 100));
   }
 }

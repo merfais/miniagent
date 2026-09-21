@@ -1,272 +1,314 @@
-import crypto from 'node:crypto';
-
-import type { AppConfig } from '../config/app-config.js';
-import { createProvider } from '../providers/factory.js';
-import type { Provider, UBlock, UMessage } from '../providers/types.js';
+import { config, type ProviderConfig } from '../config/app-config.js';
+import {
+  createProvider,
+  type ContentBlock,
+  type Provider,
+  type StopReason,
+  type ToolResultBlock,
+  type ToolUseBlock,
+} from '../providers/factory.js';
+import type { Session, UiSegment } from '../session/session.js';
 import { createDefaultToolRegistry } from '../tools/default-tool-registry.js';
-import { AsyncQueue } from './async-queue.js';
-import type { AgentEvent, ApprovalDecision, Agent } from './events.js';
+import { REFLECTION_PROMPT, SYSTEM_PROMPT } from './system-prompt.js';
+import type { ToolRegistry } from './tool-registry.js';
+
+export type ApprovalDecision = 'approve' | 'deny';
+export type SwitchResult = 'ok' | 'busy' | 'invalid_config';
+
 import { logger as globalLogger, type Logger } from './logger.js';
-import { SYSTEM_PROMPT } from './system-prompt.js';
-import type { RegisteredTool } from './tool-registry.js';
 
-export interface ToolRegistryLike {
-  get(name: string): RegisteredTool | undefined;
-  list(): RegisteredTool[];
+// 默认工具集是跨 session 只读共享的 boot 期常量，首个 Agent 构造时惰性建一次。
+let defaultTools: ToolRegistry | null = null;
+function getDefaultTools(): ToolRegistry {
+  if (!defaultTools) {
+    defaultTools = createDefaultToolRegistry();
+  }
+  return defaultTools;
 }
 
-export interface TurnOptions {
-  provider: Provider;
-  tools: ToolRegistryLike;
-  history: UMessage[];
-  turnId: string;
-  emit: (event: AgentEvent) => void;
-  requestApproval: (
-    turnId: string,
-    toolCallId: string,
-    name: string,
-    args: Record<string, unknown>,
-  ) => Promise<ApprovalDecision>;
-  isCancelled: () => boolean;
-  maxSteps: number;
-  logger: Logger;
+interface Pending {
+  id: string;
+  resolve: (d: ApprovalDecision) => void;
+  abortListener: () => void;
 }
 
-export async function runTurn(opts: TurnOptions): Promise<string> {
-  const { provider, tools, history, turnId, emit, requestApproval, isCancelled, maxSteps, logger } =
-    opts;
+const DEFAULT_MAX_STEPS = 32;
+const DEFAULT_MAX_REFLECTIONS = 3;
+const STALLED_TEXT = '任务达到反思上限,被迫终止。请细化任务目标后重新发起。';
 
-  for (let step = 0; step < maxSteps; step += 1) {
-    if (isCancelled()) {
-      return 'cancelled';
+export class Agent {
+  private readonly session: Session;
+  private readonly logger: Logger;
+  private readonly maxSteps: number;
+  private readonly maxReflections: number;
+  private tools: ToolRegistry;
+  private provider: Provider;
+  // Approval pending 表；清理三路径见 §2.2 注释：
+  //   1) resolveApproval 命中；2) abort listener 触发；3) sendMessage finally 兜底。
+  // 每条路径都通过 cleanupPending(id, decision) 完整做 delete + removeEventListener + resolve，
+  // 幂等（第二次进入时 Map 已空，直接返回）。
+  private readonly pending = new Map<string, Pending>();
+
+  constructor(session: Session) {
+    this.session = session;
+    this.logger = globalLogger;
+    this.maxSteps = DEFAULT_MAX_STEPS;
+    this.maxReflections = DEFAULT_MAX_REFLECTIONS;
+    this.tools = getDefaultTools();
+    // config 由 startServer 入口保证已 resolveConfig 填充；非法时 createProvider 返回 undefined。
+    const provider = createProvider(config?.provider, {
+      system: SYSTEM_PROMPT,
+      tools: this.tools.listSchemas(),
+    });
+    if (!provider) {
+      throw new Error('failed to create provider; check config or env');
     }
+    this.provider = provider;
+  }
 
-    let res;
+  switchProvider(config: ProviderConfig): SwitchResult {
+    if (this.session.isTurnActive) {
+      return 'busy';
+    }
+    const next = createProvider(config, {
+      system: SYSTEM_PROMPT,
+      tools: this.tools.listSchemas(),
+    });
+    if (!next) {
+      return 'invalid_config';
+    }
+    this.provider = next;
+    return 'ok';
+  }
+
+  switchTools(tools: ToolRegistry): SwitchResult {
+    if (this.session.isTurnActive) {
+      return 'busy';
+    }
+    this.tools = tools;
+    this.provider.setTools(tools.listSchemas());
+    return 'ok';
+  }
+
+  resolveApproval(id: string, decision: ApprovalDecision): boolean {
+    if (!this.pending.has(id)) {
+      return false;
+    }
+    this.cleanupPending(id, decision);
+    return true;
+  }
+
+  async sendMessage(): Promise<void> {
+    const abort = this.session.signal;
+    const aborted = (): boolean => abort.aborted;
+    let step = 0;
+    let reflectionCount = 0;
+
     try {
-      res = await provider.generate(history, { logger });
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      logger.error('turn.provider.error', { turnId, error: err.message });
-      emit({ type: 'error', turnId, message: `provider error: ${err.message}` });
-      return 'error';
-    }
-
-    history.push({ role: 'assistant', content: res.content });
-
-    for (const block of res.content) {
-      if (block.type === 'text' && block.text) {
-        emit({ type: 'text_delta', turnId, text: block.text });
-      }
-    }
-
-    if (res.stopReason !== 'tool_use') {
-      return res.stopReason;
-    }
-
-    const toolResults: UBlock[] = [];
-    for (const block of res.content) {
-      if (block.type !== 'tool_use') {
-        continue;
-      }
-      if (isCancelled()) {
-        return 'cancelled';
-      }
-
-      emit({
-        type: 'tool_call',
-        turnId,
-        toolCallId: block.id,
-        name: block.name,
-        args: block.input,
-      });
-
-      const tool = tools.get(block.name);
-      if (!tool) {
-        const message = `Unknown tool: ${block.name}`;
-        emit({ type: 'tool_result', turnId, toolCallId: block.id, result: message, isError: true });
-        toolResults.push({ type: 'tool_result', id: block.id, content: message, isError: true });
-        continue;
-      }
-
-      const decision = await requestApproval(turnId, block.id, block.name, block.input);
-      if (decision === 'deny') {
-        const message = `Tool "${block.name}" denied by user`;
-        emit({
-          type: 'tool_result',
-          turnId,
-          toolCallId: block.id,
-          result: message,
-          isError: true,
-        });
-        toolResults.push({ type: 'tool_result', id: block.id, content: message, isError: true });
-        continue;
-      }
-
-      try {
-        tool.validateArgs(block.input);
-        const output = await tool.execute(block.input);
-        const content = typeof output === 'string' ? output : JSON.stringify(output);
-        emit({ type: 'tool_result', turnId, toolCallId: block.id, result: output });
-        toolResults.push({ type: 'tool_result', id: block.id, content });
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        logger.warn('turn.tool.error', { turnId, tool: block.name, error: err.message });
-        emit({
-          type: 'tool_result',
-          turnId,
-          toolCallId: block.id,
-          result: err.message,
-          isError: true,
-        });
-        toolResults.push({
-          type: 'tool_result',
-          id: block.id,
-          content: err.message,
-          isError: true,
-        });
-      }
-    }
-
-    history.push({ role: 'user', content: toolResults });
-  }
-
-  emit({
-    type: 'notice',
-    turnId,
-    level: 'warn',
-    message: `reached max steps (${maxSteps}); stopping turn`,
-  });
-  return 'max_steps';
-}
-
-export interface CreateAgentOptions {
-  config: AppConfig;
-  cwd: string;
-  approvalTimeoutMs?: number;
-  maxSteps?: number;
-  logger?: Logger;
-}
-
-interface PendingApproval {
-  resolve: (decision: ApprovalDecision) => void;
-  timer: NodeJS.Timeout;
-}
-
-export function createAgent(opts: CreateAgentOptions): Agent {
-  const logger = opts.logger ?? globalLogger;
-  const tools = createDefaultToolRegistry({ workspaceRoot: opts.cwd });
-  const provider = createProvider(opts.config.provider, {
-    system: SYSTEM_PROMPT,
-    tools: tools.list().map((t) => ({
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters ?? { type: 'object', properties: {} },
-    })),
-  });
-  if (!provider) {
-    throw new Error('failed to create provider; check config or env');
-  }
-
-  const history: UMessage[] = [];
-  const approvals = new Map<string, PendingApproval>();
-  const approvalTimeoutMs = opts.approvalTimeoutMs ?? 5 * 60 * 1000;
-  const maxSteps = opts.maxSteps ?? 8;
-  let currentTurn: { turnId: string; cancelled: boolean } | undefined;
-
-  function requestApproval(
-    turnId: string,
-    toolCallId: string,
-    name: string,
-    args: Record<string, unknown>,
-    emit: (event: AgentEvent) => void,
-  ): Promise<ApprovalDecision> {
-    const approvalId = crypto.randomBytes(6).toString('hex');
-    emit({
-      type: 'tool_approval_request',
-      turnId,
-      approvalId,
-      toolCallId,
-      name,
-      args,
-    });
-    return new Promise<ApprovalDecision>((resolve) => {
-      const timer = setTimeout(() => {
-        if (approvals.delete(approvalId)) {
-          emit({
-            type: 'notice',
-            turnId,
-            level: 'warn',
-            message: `approval ${approvalId} timed out; denying`,
-          });
-          resolve('deny');
+      while (true) {
+        if (aborted()) {
+          return this.finalizeCancelled(null, null);
         }
-      }, approvalTimeoutMs);
-      approvals.set(approvalId, { resolve, timer });
-    });
-  }
 
-  return {
-    sendUserMessage(content: string): AsyncIterable<AgentEvent> {
-      const turnId = crypto.randomBytes(4).toString('hex');
-      const queue = new AsyncQueue<AgentEvent>();
-      const state = { turnId, cancelled: false };
-      currentTurn = state;
-      history.push({ role: 'user', content: [{ type: 'text', text: content }] });
+        const snapshot = this.session.messages.slice();
+        const wire = snapshot.map(({ role, content }) => ({ role, content }));
 
-      const emit = (event: AgentEvent): void => {
-        queue.push(event);
-      };
-
-      void (async () => {
-        let finishReason = 'end_turn';
+        let content: ContentBlock[];
+        let stopReason: StopReason;
         try {
-          finishReason = await runTurn({
-            provider,
-            tools,
-            history,
-            turnId,
-            emit,
-            requestApproval: (tid, tcid, name, args) =>
-              requestApproval(tid, tcid, name, args, emit),
-            isCancelled: () => state.cancelled,
-            maxSteps,
-            logger,
-          });
+          const result = await this.provider.generate(wire, { signal: abort });
+          content = result.content;
+          stopReason = result.stopReason;
+          // TODO(agent-usage): usage 目前 provider 已返回但 Agent 尚未消费。
+          // 后续接入 turn 级 usage 累计 / event 上报时启用 result.usage。
         } catch (error) {
+          if (aborted()) {
+            return this.finalizeCancelled(null, null);
+          }
           const err = error instanceof Error ? error : new Error(String(error));
-          logger.error('turn.uncaught', { turnId, error: err.message });
-          emit({ type: 'error', turnId, message: err.message });
-          finishReason = 'crashed';
-        } finally {
-          for (const [id, pending] of approvals) {
-            clearTimeout(pending.timer);
-            pending.resolve('deny');
-            approvals.delete(id);
-          }
-          emit({ type: 'turn_done', turnId, finishReason });
-          queue.close();
-          if (currentTurn === state) {
-            currentTurn = undefined;
-          }
+          this.logger.error('agent.provider.error', {
+            sessionId: this.session.id,
+            error: err.message,
+          });
+          void this.session.append({
+            event: { type: 'turn_done', finishReason: 'error', message: err.message },
+          });
+          return;
         }
-      })();
 
-      return queue;
-    },
-    cancel(): void {
-      if (currentTurn) {
-        currentTurn.cancelled = true;
+        if (aborted()) {
+          return this.finalizeCancelled(null, null);
+        }
+
+        void this.session.append({
+          message: { role: 'assistant', content },
+          event: { type: 'assistant_message', segments: toUiSegments(content) },
+        });
+
+        if (stopReason !== 'tool_use') {
+          void this.session.append({ event: { type: 'turn_done', finishReason: stopReason } });
+          return;
+        }
+
+        // stopReason === 'tool_use'
+        const toolUses = content.filter((b): b is ToolUseBlock => b.type === 'tool_use');
+        const results: ToolResultBlock[] = [];
+
+        let cancelledMid = false;
+        for (const tu of toolUses) {
+          if (aborted()) {
+            cancelledMid = true;
+            break;
+          }
+
+          if (this.tools.needsApproval(tu.name)) {
+            const decision = await this.requestApproval(tu);
+            if (aborted()) {
+              cancelledMid = true;
+              break;
+            }
+            if (decision === 'deny') {
+              const r: ToolResultBlock = {
+                type: 'tool_result',
+                tool_use_id: tu.tool_use_id,
+                is_error: true,
+                content: 'denied by user',
+              };
+              results.push(r);
+              void this.session.append({
+                event: {
+                  type: 'tool_result',
+                  toolUseId: tu.tool_use_id,
+                  result: r.content,
+                  isError: true,
+                },
+              });
+              continue;
+            }
+          }
+
+          const result = await this.tools.run(tu, { signal: abort });
+          results.push(result);
+          void this.session.append({
+            event: {
+              type: 'tool_result',
+              toolUseId: tu.tool_use_id,
+              result: result.content,
+              isError: result.is_error,
+            },
+          });
+        }
+
+        if (cancelledMid || aborted()) {
+          return this.finalizeCancelled(toolUses, results);
+        }
+
+        void this.session.append({ message: { role: 'user', content: results } });
+
+        step += 1;
+        if (step >= this.maxSteps) {
+          reflectionCount += 1;
+          if (reflectionCount > this.maxReflections) {
+            void this.session.append({
+              message: { role: 'assistant', content: [{ type: 'text', text: STALLED_TEXT }] },
+              event: {
+                type: 'assistant_message',
+                segments: [{ type: 'text', text: STALLED_TEXT }],
+              },
+            });
+            void this.session.append({ event: { type: 'turn_done', finishReason: 'stalled' } });
+            return;
+          }
+          const reflection = {
+            role: 'user' as const,
+            content: [{ type: 'text' as const, text: REFLECTION_PROMPT }],
+          };
+          void this.session.append({ message: reflection });
+          step = 0;
+        }
       }
-    },
-    approve(approvalId: string, decision: ApprovalDecision): void {
-      const pending = approvals.get(approvalId);
-      if (!pending) {
-        logger.warn('approval.unknown', { approvalId });
-        return;
+    } finally {
+      // 见 §2.2：兜底防御 sendMessage 循环内非 abort 异常导致 pending 悬挂。
+      // 正常路径下此时 Map 已空。
+      for (const id of this.pending.keys()) {
+        this.cleanupPending(id, 'deny');
       }
-      clearTimeout(pending.timer);
-      approvals.delete(approvalId);
-      pending.resolve(decision);
-    },
-  };
+    }
+  }
+
+  private cleanupPending(id: string, decision: ApprovalDecision): void {
+    const p = this.pending.get(id);
+    if (!p) {
+      return;
+    }
+    this.pending.delete(id);
+    this.session.signal.removeEventListener('abort', p.abortListener);
+    p.resolve(decision);
+  }
+
+  private requestApproval(tu: ToolUseBlock): Promise<ApprovalDecision> {
+    return new Promise((resolve) => {
+      const id = tu.tool_use_id;
+      const abortListener = (): void => this.cleanupPending(id, 'deny');
+      this.pending.set(id, { id, resolve, abortListener });
+      this.session.signal.addEventListener('abort', abortListener, { once: true });
+      void this.session.append({
+        event: {
+          type: 'tool_approval_request',
+          approvalId: id,
+          toolUseId: tu.tool_use_id,
+          name: tu.name,
+          args: tu.input,
+        },
+      });
+    });
+  }
+
+  private finalizeCancelled(
+    emittedToolUses: readonly ToolUseBlock[] | null,
+    collectedResults: readonly ToolResultBlock[] | null,
+  ): void {
+    if (emittedToolUses && emittedToolUses.length > 0) {
+      const doneIds = new Set((collectedResults ?? []).map((r) => r.tool_use_id));
+      const missing = emittedToolUses.filter((tu) => !doneIds.has(tu.tool_use_id));
+      const fakeResults: ToolResultBlock[] = missing.map((tu) => ({
+        type: 'tool_result',
+        tool_use_id: tu.tool_use_id,
+        is_error: true,
+        content: '用户主动取消,无运行结果',
+      }));
+      for (const fr of fakeResults) {
+        void this.session.append({
+          event: {
+            type: 'tool_result',
+            toolUseId: fr.tool_use_id,
+            result: fr.content,
+            isError: true,
+          },
+        });
+      }
+      const merged: ToolResultBlock[] = [...(collectedResults ?? []), ...fakeResults];
+      void this.session.append({ message: { role: 'user', content: merged } });
+    }
+    void this.session.append({ event: { type: 'turn_done', finishReason: 'user_cancelled' } });
+  }
+}
+
+function toUiSegments(content: ContentBlock[]): UiSegment[] {
+  const out: UiSegment[] = [];
+  for (const b of content) {
+    if (b.type === 'text') {
+      if (b.text) {
+        out.push({ type: 'text', text: b.text });
+      }
+    } else if (b.type === 'thinking') {
+      if (b.text) {
+        out.push({ type: 'reasoning', text: b.text });
+      }
+    } else if (b.type === 'tool_use') {
+      out.push({ type: 'tool_use', id: b.tool_use_id, name: b.name, args: b.input });
+    }
+    // tool_result 不会出现在 assistant content 中；此处忽略。
+  }
+  return out;
 }

@@ -3,44 +3,38 @@ import path from 'node:path';
 
 import { resolveConfig } from '../config/app-config.js';
 import { createBootLogger, logger, stdLogger } from '../core/logger.js';
+import { runtimeRoot } from '../core/workspace.js';
+import { initSessionStore } from '../session/session-store.js';
 import { listen } from './http/server.js';
 import { createRouter } from './routes.js';
-import { SessionStore } from './sessions.js';
 
-interface StartOptions {
-  cwd?: string;
-  configPath?: string;
-  env?: NodeJS.ProcessEnv;
-  port?: number;
-  host?: string;
-}
+const HOST = '127.0.0.1';
+const PORT = 0;
 
-export async function startServer(
-  opts: StartOptions = {},
-): Promise<{ port: number; close: () => Promise<void> }> {
-  const cwd = opts.cwd ?? process.cwd();
-  const configPath = opts.configPath ?? path.join(cwd, 'miniagent.config.json');
-  const env = opts.env ?? process.env;
-
-  const config = await resolveConfig({ cwd, configPath, env });
+export async function startServer(): Promise<{ port: number; close: () => Promise<void> }> {
+  const config = await resolveConfig();
   createBootLogger(config.log);
 
-  const sessionStore = new SessionStore({ config, cwd });
-  const router = createRouter(sessionStore);
+  if (!config.provider) {
+    throw new Error(
+      'provider config missing; set OPENAI_API_KEY / ANTHROPIC_API_KEY or config file',
+    );
+  }
+  initSessionStore();
+  const router = createRouter();
 
-  const host = opts.host ?? '127.0.0.1';
-  const server = await listen(router, { host, port: opts.port ?? 0 });
+  const server = await listen(router, { host: HOST, port: PORT });
 
-  const runtimeDir = path.join(cwd, '.miniagent');
+  const runtimeDir = path.join(runtimeRoot, '.miniagent');
   fs.mkdirSync(runtimeDir, { recursive: true });
   fs.writeFileSync(
     path.join(runtimeDir, 'runtime.json'),
-    JSON.stringify({ host, port: server.port, pid: process.pid }, null, 2),
+    JSON.stringify({ host: HOST, port: server.port, pid: process.pid }, null, 2),
     'utf8',
   );
 
-  stdLogger.info(`agent server listening on http://${host}:${server.port}`);
-  logger.info('server.listen', { host, port: server.port });
+  stdLogger.info(`agent server listening on http://${HOST}:${server.port}`);
+  logger.info('server.listen', { host: HOST, port: server.port });
 
   return server;
 }

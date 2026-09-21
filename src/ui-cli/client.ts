@@ -1,4 +1,5 @@
-import type { AgentEvent, ApprovalDecision } from '../core/events.js';
+import type { ApprovalDecision } from '../core/agent.js';
+import type { UiEvent } from '../session/session.js';
 
 export interface AgentClientOptions {
   baseUrl: string;
@@ -64,7 +65,7 @@ export class AgentClient {
     });
   }
 
-  async *events(sessionId: string, signal?: AbortSignal): AsyncIterable<AgentEvent> {
+  async *events(sessionId: string, signal?: AbortSignal): AsyncIterable<UiEvent> {
     const res = await this.fetchImpl(
       `${this.baseUrl}/events?sessionId=${encodeURIComponent(sessionId)}`,
       { headers: { Accept: 'text/event-stream' }, signal },
@@ -90,7 +91,7 @@ export class AgentClient {
           continue;
         }
         try {
-          yield JSON.parse(dataLine.slice(5).trim()) as AgentEvent;
+          yield JSON.parse(dataLine.slice(5).trim()) as UiEvent;
         } catch {
           // ignore malformed
         }

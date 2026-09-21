@@ -2,11 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { logger } from '../core/logger.js';
+import { runtimeRoot } from '../core/workspace.js';
 
 export interface BaseProviderConfig {
   model?: string;
   baseURL?: string;
   apiKey?: string;
+  maxTokens?: number;
 }
 
 export interface OpenAIChatProviderConfig extends BaseProviderConfig {
@@ -19,7 +21,6 @@ export interface OpenAIResponsesProviderConfig extends BaseProviderConfig {
 
 export interface AnthropicProviderConfig extends BaseProviderConfig {
   type: 'anthropic';
-  maxTokens?: number;
 }
 
 export type ProviderConfig =
@@ -90,15 +91,16 @@ function resolveProvider(
   return fileProvider;
 }
 
-let cached: AppConfig | undefined;
+// boot 期由 startServer 调用 resolveConfig 填充；消费方直接引用此 live binding。
+export let config: AppConfig | undefined;
 
 export async function resolveConfig({
-  cwd = process.cwd(),
+  cwd = runtimeRoot,
   configPath = path.join(cwd, 'miniagent.config.json'),
   env = process.env,
 }: ResolveConfigOptions = {}): Promise<AppConfig> {
-  if (cached) {
-    return cached;
+  if (config) {
+    return config;
   }
 
   let raw: Partial<AppConfig> = {};
@@ -108,13 +110,13 @@ export async function resolveConfig({
     logger.warn(`failed to load config from ${configPath}: ${(error as Error).message}`);
   }
 
-  cached = {
+  config = {
     log: resolveLog(raw.log),
     provider: resolveProvider(raw.provider, env),
   };
-  return cached;
+  return config;
 }
 
 export function __resetConfigCacheForTests(): void {
-  cached = undefined;
+  config = undefined;
 }

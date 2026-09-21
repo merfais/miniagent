@@ -1,6 +1,6 @@
 import type readline from 'node:readline';
 
-import type { AgentEvent } from '../core/events.js';
+import type { UiEvent } from '../session/session.js';
 import type { AgentClient } from './client.js';
 
 export interface RendererDeps {
@@ -18,17 +18,26 @@ export function createRenderer(deps: RendererDeps) {
     out.write(s);
   };
 
-  return async function render(event: AgentEvent): Promise<void> {
+  return async function render(event: UiEvent): Promise<void> {
     switch (event.type) {
-      case 'text_delta':
-        write(event.text);
+      case 'user_message':
+        write(`\n> ${event.content}\n`);
         break;
-      case 'reasoning_delta':
-        write(`\n[thinking] ${event.text}\n`);
+      case 'assistant_message': {
+        for (const seg of event.segments) {
+          if (seg.type === 'text') {
+            write(seg.text);
+          } else if (seg.type === 'reasoning') {
+            write(`\n[thinking] ${seg.text}\n`);
+          } else if (seg.type === 'tool_use') {
+            write(`\n[tool] ${seg.name} ${JSON.stringify(seg.args)}\n`);
+          } else if (seg.type === 'llm_error') {
+            write(`\n[error] ${seg.message}\n`);
+          }
+        }
+        write('\n');
         break;
-      case 'tool_call':
-        write(`\n[tool] ${event.name} ${JSON.stringify(event.args)}\n`);
-        break;
+      }
       case 'tool_result': {
         const preview =
           typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
@@ -46,18 +55,17 @@ export function createRenderer(deps: RendererDeps) {
         }
         break;
       }
-      case 'notice':
-        write(`\n[${event.level}] ${event.message}\n`);
-        break;
-      case 'error':
-        write(`\n[error] ${event.message}\n`);
+      case 'tool_approval_decision':
+        write(`[approval:${event.decision}]\n`);
         break;
       case 'turn_done':
+        if (event.finishReason === 'error' && event.message) {
+          write(`\n[error] ${event.message}\n`);
+        }
         write(`\n[done: ${event.finishReason}]\n`);
         onTurnDone();
         break;
       default:
-        // unknown event types: silently ignore for forward compatibility
         break;
     }
   };

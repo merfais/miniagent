@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { normalizeWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
+import { getWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -32,13 +32,11 @@ export function assertSafeCommand(cmd: string): void {
   }
 }
 
-export function createShellTool({ workspaceRoot }: { workspaceRoot: string }) {
-  const root = normalizeWorkspaceRoot(workspaceRoot);
-
+export function createShellTool() {
   return {
     async run_command({ cmd, cwd }: { cmd?: string; cwd?: string } = {}) {
       assertSafeCommand(cmd as string);
-      const workingDirectory = cwd ? resolveWorkspacePath(root, cwd) : root;
+      const workingDirectory = cwd ? resolveWorkspacePath(cwd) : getWorkspaceRoot();
 
       try {
         const { stdout, stderr } = await execFileAsync('bash', ['-lc', cmd as string], {

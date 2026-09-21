@@ -5,7 +5,6 @@ import { createWebSearchTool } from './web-search-tool.js';
 import type { FetchLike } from './web-search-tool.js';
 
 export interface ToolRegistryFactoryOptions {
-  workspaceRoot: string;
   fetchImpl?: FetchLike;
 }
 
@@ -15,24 +14,24 @@ function registerFunctionTools(
     name: string;
     description: string;
     parameters: Record<string, unknown>;
+    needsApproval?: boolean;
   }>,
   methods: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
 ): void {
   for (const definition of definitions) {
     registry.register({
       ...definition,
-      execute: methods[definition.name]!,
+      execute: (args) => methods[definition.name]!(args),
     });
   }
 }
 
 export function createDefaultToolRegistry({
-  workspaceRoot,
   fetchImpl,
-}: ToolRegistryFactoryOptions): ToolRegistry {
+}: ToolRegistryFactoryOptions = {}): ToolRegistry {
   const registry = new ToolRegistry();
-  const fileTools = createFileTools({ workspaceRoot });
-  const shellTool = createShellTool({ workspaceRoot });
+  const fileTools = createFileTools();
+  const shellTool = createShellTool();
   const webSearchTool = createWebSearchTool({ fetchImpl });
 
   registerFunctionTools(
@@ -58,6 +57,7 @@ export function createDefaultToolRegistry({
           },
           required: ['path', 'content'],
         },
+        needsApproval: true,
       },
       {
         name: 'list_files',
@@ -94,6 +94,7 @@ export function createDefaultToolRegistry({
       },
       required: ['cmd'],
     },
+    needsApproval: true,
     execute: shellTool.run_command,
   });
 

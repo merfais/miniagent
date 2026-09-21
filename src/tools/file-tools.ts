@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { normalizeWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
+import { getWorkspaceRoot, resolveWorkspacePath } from '../core/workspace.js';
 
 async function listFilesRecursive(
   root: string,
@@ -25,12 +25,10 @@ async function listFilesRecursive(
   }
 }
 
-export function createFileTools({ workspaceRoot }: { workspaceRoot: string }) {
-  const root = normalizeWorkspaceRoot(workspaceRoot);
-
+export function createFileTools() {
   return {
     async read_file({ path: targetPath }: { path: string }) {
-      const filePath = resolveWorkspacePath(root, targetPath);
+      const filePath = resolveWorkspacePath(targetPath);
       return {
         path: targetPath,
         content: await fs.readFile(filePath, 'utf8'),
@@ -38,7 +36,7 @@ export function createFileTools({ workspaceRoot }: { workspaceRoot: string }) {
     },
 
     async write_file({ path: targetPath, content }: { path: string; content: string }) {
-      const filePath = resolveWorkspacePath(root, targetPath);
+      const filePath = resolveWorkspacePath(targetPath);
       await fs.mkdir(path.dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, content, 'utf8');
 
@@ -49,9 +47,9 @@ export function createFileTools({ workspaceRoot }: { workspaceRoot: string }) {
     },
 
     async list_files({ path: targetPath = '.' }: { path?: string } = {}) {
-      const directoryPath = resolveWorkspacePath(root, targetPath);
+      const directoryPath = resolveWorkspacePath(targetPath);
       const files: string[] = [];
-      await listFilesRecursive(root, directoryPath, files);
+      await listFilesRecursive(getWorkspaceRoot(), directoryPath, files);
       files.sort();
 
       return {
@@ -61,13 +59,13 @@ export function createFileTools({ workspaceRoot }: { workspaceRoot: string }) {
     },
 
     async search_code({ query, path: targetPath = '.' }: { query: string; path?: string }) {
-      const directoryPath = resolveWorkspacePath(root, targetPath);
+      const directoryPath = resolveWorkspacePath(targetPath);
       const files: string[] = [];
-      await listFilesRecursive(root, directoryPath, files);
+      await listFilesRecursive(getWorkspaceRoot(), directoryPath, files);
 
       const matches: Array<{ path: string; line: number; content: string }> = [];
       for (const relativePath of files) {
-        const absolutePath = resolveWorkspacePath(root, relativePath);
+        const absolutePath = resolveWorkspacePath(relativePath);
         const content = await fs.readFile(absolutePath, 'utf8');
         const lines = content.split(/\r?\n/);
 
